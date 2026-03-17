@@ -335,7 +335,7 @@ def categoriser_uci(distance_m, d_plus):
 # ==============================================================================
 
 def lisser(alts, f=7):
-    """Lissage par moyenne mobile — fenêtre légèrement plus large pour gommer le bruit GPS."""
+    """Lissage par moyenne mobile."""
     demi, n, r = f//2, len(alts), []
     for i in range(n):
         s, e = max(0,i-demi), min(n,i+demi+1)
@@ -343,57 +343,110 @@ def lisser(alts, f=7):
     return r
 
 
-def detecter_segments(dists, alts):
+def trouver_minimum_local(alts, debut_idx, sommet_idx):
     """
-    Détecte les segments montants.
-    Fin de montée : descente de plus de MARGE_FIN depuis le sommet.
-    MARGE_FIN adaptive : 5% du D+ courant, min 30m, max 200m.
-    Permet de ne pas couper un col alpin à chaque replat.
+    Trouve le minimum local le plus proche du sommet dans la fenêtre [debut_idx, sommet_idx].
+    Méthode UCI : le col commence au dernier creux avant le sommet,
+    pas nécessairement au fond de vallée absolu.
+    On cherche le point le plus bas dans la seconde moitié de la fenêtre.
     """
-    segs, n = [], len(alts)
-    en_m = False; ci = si = 0
-    alt_base = alts[0]
+    # On divise la fenêtre en deux et on cherche le min dans chaque moitié
+    milieu = (debut_idx + sommet_idx) // 2
+
+    # Minimum absolu sur toute la fenêtre
+    min_abs_idx = min(range(debut_idx, sommet_idx), key=lambda i: alts[i])
+
+    # Si le minimum est dans la première moitié, on affine :
+    # on cherche aussi le minimum dans la seconde moitié (dernier creux avant sommet)
+    min_2eme_moitie_idx = min(range(milieu, sommet_idx), key=lambda i: alts[i])
+
+    # On prend le minimum le plus bas entre les deux
+    if alts[min_2eme_moitie_idx] < alts[min_abs_idx] + 50:
+        # Le dernier creux est proche du min absolu → on prend le dernier creux (UCI)
+        return min_2eme_moitie_idx
+    else:
+        # Grande différence → le vrai fond de vallée est plus tôt, on reste sur le min absolu
+        return min_abs_idx
+
+
+def detecter_sommets(dists, alts):
+    """
+    Détecte les sommets locaux significatifs.
+    Un sommet est valide si on descend d'au moins MARGE_SOMMET depuis lui.
+    MARGE_SOMMET adaptive : 5% de l'amplitude locale, min 50m.
+    """
+    n = len(alts)
+    sommets = []
+    en_montee = False
+    ci = si = 0
 
     for i in range(1, n):
         a = alts[i]
-        if not en_m:
-            if a < alts[ci]: ci = i; alt_base = a
-            elif a >= alts[ci] + 15:
-                en_m = True; si = i
+        if not en_montee:
+            if a < alts[ci]: ci = i
+            elif a >= alts[ci] + 20:
+                en_montee = True; si = i
         else:
             if a > alts[si]: si = i
             else:
-                # Marge adaptive : 5% du D+ courant
-                d_plus_courant = alts[si] - alts[ci]
-                marge = max(30, min(200, d_plus_courant * 0.05))
+                d_plus = alts[si] - alts[ci]
+                marge  = max(50, d_plus * 0.05)
                 if a <= alts[si] - marge:
-                    segs.append((ci, si))
-                    en_m = False; ci = i; si = i
+                    sommets.append((ci, si))
+                    en_montee = False; ci = i; si = i
 
-    if en_m and si > ci:
-        segs.append((ci, si))
-    return segs
+    if en_montee and si > ci:
+        sommets.append((ci, si))
+
+    return sommets
 
 
-def fusionner(segs, alts):
+def detecter_ascensions(df):
     """
-    Fusionne les segments séparés par une descente intermédiaire.
-    Tolérance adaptive : 8% du D+ total des deux segments, min 25m, max 300m.
-    Permet de réunir les deux versants d'un col avec replat.
+    Détecte les ascensions selon la logique UCI :
+    - On trouve d'abord les sommets locaux significatifs
+    - Pour chaque sommet, le début = minimum local le plus proche (méthode UCI)
+    - On catégorise depuis ce point de départ corrigé
+    - Les cols séparés par une vraie descente restent séparés
     """
-    if not segs: return []
-    f = [segs[0]]
-    for d, s in segs[1:]:
-        pd_, ps_ = f[-1]
-        descente_inter = alts[ps_] - alts[d]
-        # D+ combiné des deux segments
-        d_plus_total = (alts[ps_] - alts[pd_]) + (alts[s] - alts[d])
-        tolerance = max(25, min(300, d_plus_total * 0.08))
-        if descente_inter <= tolerance:
-            f[-1] = (pd_, s if alts[s] >= alts[ps_] else ps_)
-        else:
-            f.append((d, s))
-    return f
+    if df.empty or len(df) < 3: return []
+    alts  = df["Altitude (m)"].tolist()
+    dists = df["Distance (km)"].tolist()
+    al    = lisser(alts)
+
+    sommets_bruts = detecter_sommets(dists, al)
+
+    out = []
+    for debut_brut, sommet_idx in sommets_bruts:
+        # Recalage du point de départ sur le minimum local UCI
+        debut_idx = trouver_minimum_local(al, debut_brut, sommet_idx)
+
+        dk  = dists[sommet_idx] - dists[debut_idx]
+        dp  = alts[sommet_idx]  - alts[debut_idx]
+
+        if dk <= 0 or dp <= 0: continue
+
+        cat, score = categoriser_uci(dk * 1000, dp)
+        if cat is None: continue
+
+        pm_ = (dp / (dk * 1000)) * 100
+        out.append({
+            "Catégorie":   cat,
+            "Départ (km)": round(dists[debut_idx], 1),
+            "Sommet (km)": round(dists[sommet_idx], 1),
+            "Longueur":    f"{round(dk, 1)} km",
+            "Dénivelé":    f"{int(dp)} m",
+            "Pente moy.":  f"{round(pm_, 1)} %",
+            "Pente max":   f"{pente_max(dists, alts, debut_idx, sommet_idx)} %",
+            "Alt. sommet": f"{int(alts[sommet_idx])} m",
+            "Score UCI":   score,
+            "_debut_km":   dists[debut_idx],
+            "_sommet_km":  dists[sommet_idx],
+            "_pente_moy":  pm_,
+        })
+
+    out.sort(key=lambda x: x["_debut_km"])
+    return out
 
 def pente_max(dists, alts, d0, s0):
     pm = 0.0
@@ -405,31 +458,6 @@ def pente_max(dists, alts, d0, s0):
                 if 0 < p <= 40: pm = max(pm, p)
                 break
     return round(pm, 1)
-
-def detecter_ascensions(df):
-    if df.empty or len(df) < 3: return []
-    alts  = df["Altitude (m)"].tolist()
-    dists = df["Distance (km)"].tolist()
-    al    = lisser(alts)
-    segs  = fusionner(detecter_segments(dists, al), al)
-    out   = []
-    for d0, s0 in segs:
-        dk  = dists[s0] - dists[d0]
-        dp  = alts[s0]  - alts[d0]
-        if dk <= 0 or dp <= 0: continue
-        cat, score = categoriser_uci(dk*1000, dp)
-        if cat is None: continue
-        pm_ = (dp/(dk*1000))*100
-        out.append({
-            "Catégorie":   cat,   "Départ (km)": round(dists[d0],1),
-            "Sommet (km)": round(dists[s0],1),  "Longueur": f"{round(dk,1)} km",
-            "Dénivelé":    f"{int(dp)} m",       "Pente moy.": f"{round(pm_,1)} %",
-            "Pente max":   f"{pente_max(dists,alts,d0,s0)} %",
-            "Alt. sommet": f"{int(alts[s0])} m", "Score UCI": score,
-            "_debut_km": dists[d0], "_sommet_km": dists[s0], "_pente_moy": pm_,
-        })
-    out.sort(key=lambda x: x["_debut_km"])
-    return out
 
 
 # ==============================================================================
