@@ -9,197 +9,167 @@ import matplotlib.pyplot as plt
 import math
 import numpy as np
 
-# --- FONCTIONS MATHÉMATIQUES ET TRADUCTEURS ---
-def calculer_cap(lat1, lon1, lat2, lon2):
-    lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
-    dlon = lon2 - lon1
-    x = math.sin(dlon) * math.cos(lat2)
-    y = math.cos(lat1) * math.sin(lat2) - (math.sin(lat1) * math.cos(lat2) * math.cos(dlon))
-    cap_initial = math.atan2(x, y)
-    return (math.degrees(cap_initial) + 360) % 360
+# --- CACHING POUR ÉVITER LES RECHARGEMENTS INTEMPESTIFS ---
+@st.cache_data
+def charger_gpx(file_content):
+    gpx = gpxpy.parse(file_content)
+    pts = []
+    for track in gpx.tracks:
+        for seg in track.segments:
+            for p in seg.points:
+                pts.append({'lat': p.latitude, 'lon': p.longitude, 'alt': p.elevation})
+    return pts
+
+@st.cache_data
+def recuperer_meteo_batch(lats_str, lons_str):
+    url = f"https://api.open-meteo.com/v1/forecast?latitude={lats_str}&longitude={lons_str}&hourly=temperature_2m,precipitation_probability,weathercode,wind_speed_10m,wind_direction_10m&timezone=auto"
+    try:
+        res = requests.get(url).json()
+        return res if isinstance(res, list) else [res]
+    except:
+        return None
+
+# --- LOGIQUE DÉTECTION DES MONTÉES AFFINÉE ---
+def detecter_ascensions_precises(df, seuil_d_plus=20, fenetre_lissage=5):
+    # Lissage de l'altitude pour éviter les sauts du GPS
+    df['alt_smooth'] = df['Altitude (m)'].rolling(window=fenetre_lissage, center=True).mean().fillna(df['Altitude (m)'])
+    
+    ascensions = []
+    en_montee = False
+    idx_debut = 0
+    
+    for i in range(1, len(df)):
+        alt_actuelle = df.iloc[i]['alt_smooth']
+        alt_precedente = df.iloc[i-1]['alt_smooth']
+        
+        # Si on détecte un début de montée significatif
+        if not en_montee and alt_actuelle > alt_precedente + 0.5:
+            en_montee = True
+            idx_debut = i-1
+            
+        if en_montee:
+            # On cherche le point le plus haut après le début
+            # Si ça descend trop longtemps (ex: plus de 1km ou perte de 20m par rapport au max local)
+            alt_max_locale = df.iloc[idx_debut:i+1]['alt_smooth'].max()
+            dist_depuis_max = df.iloc[i]['Distance (km)'] - df.iloc[df.iloc[idx_debut:i+1]['alt_smooth'].idxmax()]['Distance (km)']
+            
+            if alt_actuelle < alt_max_locale - 25 or dist_depuis_max > 1.5:
+                idx_sommet = df.iloc[idx_debut:i+1]['alt_smooth'].idxmax()
+                d_plus = df.iloc[idx_sommet]['alt_smooth'] - df.iloc[idx_debut]['alt_smooth']
+                dist_km = df.iloc[idx_sommet]['Distance (km)'] - df.iloc[idx_debut]['Distance (km)']
+                
+                cat = categoriser_ascension(dist_km * 1000, d_plus)
+                if cat:
+                    ascensions.append({
+                        "Départ": f"Km {round(df.iloc[idx_debut]['Distance (km)'], 1)}",
+                        "Catégorie": cat,
+                        "Distance": f"{round(dist_km, 1)} km",
+                        "Pente Moy.": f"{round((d_plus/(dist_km*1000))*100, 1)}%",
+                        "D+": f"{int(d_plus)}m"
+                    })
+                en_montee = False
+                idx_debut = i
+    return ascensions
+
+def categoriser_ascension(dist_m, d_plus):
+    if dist_m < 400 or d_plus < 15: return None # Plus sensible
+    pente = (d_plus / dist_m) * 100
+    score = (dist_m / 1000) * (pente ** 2)
+    if score >= 150: return "🔴 HC/1"
+    elif score >= 60: return "🟡 2ème"
+    elif score >= 20: return "🟢 3ème"
+    elif score >= 8: return "🔵 4ème"
+    return None
 
 def direction_vent_relative(cap_velo, dir_vent):
     diff = (dir_vent - cap_velo) % 360
     if diff <= 45 or diff >= 315: return "⬇️ Face"
     elif 135 <= diff <= 225: return "⬆️ Dos"
-    elif 45 < diff < 135: return "↘️ Côté (D)"
-    else: return "↙️ Côté (G)"
+    else: return "💨 Côté"
 
-def categoriser_ascension(distance_m, d_plus):
-    if distance_m < 500 or d_plus < 30: return None
-    pente_moyenne = (d_plus / distance_m) * 100
-    if pente_moyenne < 1.5: return None 
-    
-    score = (distance_m / 1000) * (pente_moyenne ** 2)
-    if score >= 250: return "🔴 HC"
-    elif score >= 150: return "🟠 1ère Cat."
-    elif score >= 80: return "🟡 2ème Cat."
-    elif score >= 35: return "🟢 3ème Cat."
-    elif score >= 15: return "🔵 4ème Cat."
-    else: return "⚪ NC"
+# --- INTERFACE ---
+st.set_page_config(page_title="Vélo Météo Pro", layout="wide")
+st.sidebar.header("Configuration")
 
-def obtenir_icone_meteo(code):
-    mapping = {0: "☀️ Clair", 1: "⛅ Éclaircies", 2: "⛅ Éclaircies", 3: "☁️ Couvert", 
-               45: "🌫️ Brouillard", 48: "🌫️ Brouillard", 51: "🌦️ Bruine", 61: "🌧️ Pluie", 
-               71: "❄️ Neige", 95: "⛈️ Orage"}
-    return mapping.get(code, "❓ Inconnu")
+# Sélecteur de donnée sur le graphique
+data_meteo_view = st.sidebar.radio("Afficher sur le profil :", ["Vent (km/h)", "Probabilité Pluie (%)", "Température (°C)"])
 
-# --- 1. CONFIGURATION ---
-st.set_page_config(page_title="Vélo & Météo Pro", layout="wide")
-st.title("🚴‍♂️ Mon Parcours Vélo & Météo")
+file = st.sidebar.file_uploader("Fichier GPX", type="gpx")
 
-st.sidebar.header("⚙️ Paramètres")
-date_depart_choisie = st.sidebar.date_input("Date de départ", value=date.today())
-heure_depart = st.sidebar.time_input("Heure de départ")
-vitesse_moyenne = st.sidebar.number_input("Vitesse moy. plat (km/h)", value=25)
-
-intervalle_min = st.sidebar.selectbox("Intervalle météo", options=[5, 10, 15], index=1)
-intervalle_sec = intervalle_min * 60
-
-# --- 2. IMPORT GPX ---
-fichier_gpx = st.file_uploader("Importez votre tracé (.gpx)", type=["gpx"])
-
-if fichier_gpx:
-    gpx = gpxpy.parse(fichier_gpx)
-    points_gpx = []
-    for track in gpx.tracks:
-        for segment in track.segments:
-            for point in segment.points:
-                points_gpx.append(point)
-
-    if points_gpx:
-        # --- CALCULS TRAJET ---
-        checkpoints = []
-        profil_data = []
-        dist_totale_m, d_plus_total, d_moins_total, temps_total_sec = 0, 0, 0, 0
-        prochain_checkpoint_sec = 0
-        date_depart = datetime.combine(date_depart_choisie, heure_depart)
-
-        for i in range(1, len(points_gpx)):
-            p1, p2 = points_gpx[i-1], points_gpx[i]
-            dist = p1.distance_2d(p2) or 0
-            
-            # Ajustement vitesse selon pente
-            d_plus_local = max(0, (p2.elevation - p1.elevation)) if p2.elevation and p1.elevation else 0
-            d_plus_total += d_plus_local
-            if p2.elevation and p1.elevation and p2.elevation < p1.elevation:
-                d_moins_total += abs(p2.elevation - p1.elevation)
-
-            dist_ajustee = dist + (d_plus_local * 10)
-            vitesse_ms = (vitesse_moyenne * 1000) / 3600
-            temps_sec = dist_ajustee / vitesse_ms if vitesse_ms > 0 else 0
-
-            dist_totale_m += dist
-            temps_total_sec += temps_sec
-            
-            profil_data.append({"Distance (km)": dist_totale_m / 1000, "Altitude (m)": p2.elevation})
-
-            if temps_total_sec >= prochain_checkpoint_sec:
-                heure_p = date_depart + timedelta(seconds=temps_total_sec)
-                checkpoints.append({
-                    "lat": p2.latitude, "lon": p2.longitude, 
-                    "Cap": calculer_cap(p1.latitude, p1.longitude, p2.latitude, p2.longitude),
-                    "Heure": heure_p.strftime("%H:%M"),
-                    "Heure_API": heure_p.replace(minute=0, second=0).strftime("%Y-%m-%dT%H:00"),
-                    "Km": round(dist_totale_m / 1000, 1)
-                })
-                prochain_checkpoint_sec += intervalle_sec
-
-        df_profil = pd.DataFrame(profil_data)
-
-        # --- DÉTECTION DES COLS (AMÉLIORÉE) ---
-        ascensions = []
-        en_montee = False
-        debut_idx, idx_max, alt_max, pente_max_loc = 0, 0, 0, 0
-
-        for i in range(1, len(df_profil)):
-            alt, dist = df_profil.iloc[i]['Altitude (m)'], df_profil.iloc[i]['Distance (km)']
-            if not en_montee:
-                if alt > df_profil.iloc[debut_idx]['Altitude (m)'] + 15:
-                    en_montee, idx_max, alt_max, pente_max_loc = True, i, alt, 0
-            else:
-                # Calcul pente max sur 100m
-                for j in range(i-1, 0, -1):
-                    d_diff = dist - df_profil.iloc[j]['Distance (km)']
-                    if d_diff >= 0.1:
-                        pente = ((alt - df_profil.iloc[j]['Altitude (m)']) / (d_diff * 1000)) * 100
-                        pente_max_loc = max(pente_max_loc, pente)
-                        break
-                
-                if alt > alt_max: 
-                    alt_max, idx_max = alt, i
-                # Condition de fin : descente de 40m ET au moins 500m après le sommet (évite de couper sur replat)
-                elif alt < alt_max - 40 and (dist - df_profil.iloc[idx_max]['Distance (km)']) > 0.5:
-                    d_deb = df_profil.iloc[debut_idx]['Distance (km)']
-                    dist_col = df_profil.iloc[idx_max]['Distance (km)'] - d_deb
-                    d_p = alt_max - df_profil.iloc[debut_idx]['Altitude (m)']
-                    cat = categoriser_ascension(dist_col * 1000, d_p)
-                    if cat:
-                        ascensions.append({"Départ": f"Km {round(d_deb, 1)}", "Catégorie": cat, "Distance": f"{round(dist_col, 1)} km", "Pente Moy.": f"{round((d_p/(dist_col*1000))*100, 1)}%", "Pente Max": f"{round(pente_max_loc, 1)}%", "D+": f"{int(d_p)}m"})
-                    en_montee, debut_idx = False, i
-
-        # --- MÉTÉO ---
-        lats, lons = ",".join([str(c['lat']) for c in checkpoints]), ",".join([str(c['lon']) for c in checkpoints])
-        url = f"https://api.open-meteo.com/v1/forecast?latitude={lats}&longitude={lons}&hourly=temperature_2m,precipitation_probability,weathercode,wind_speed_10m,wind_direction_10m&timezone=auto"
+if file:
+    points = charger_gpx(file.getvalue())
+    if points:
+        # Calcul distance/temps
+        df_pts = []
+        d_tot, d_plus, d_moins = 0, 0, 0
+        v_moy = st.sidebar.slider("Vitesse (km/h)", 10, 40, 25)
         
-        try:
-            res = requests.get(url).json()
-            res_list = res if isinstance(res, list) else [res]
-            for i, cp in enumerate(checkpoints):
-                data = res_list[i]['hourly']
-                if cp['Heure_API'] in data['time']:
-                    idx = data['time'].index(cp['Heure_API'])
-                    cp.update({
-                        "Ciel": obtenir_icone_meteo(data['weathercode'][idx]),
-                        "Temp": f"{data['temperature_2m'][idx]}°",
-                        "Pluie": data['precipitation_probability'][idx],
-                        "Vent": data['wind_speed_10m'][idx],
-                        "Dir": data['wind_direction_10m'][idx],
-                        "Effet Vent": direction_vent_relative(cp["Cap"], data['wind_direction_10m'][idx])
-                    })
-        except: st.error("Erreur météo")
+        for i in range(len(points)):
+            if i > 0:
+                p1, p2 = points[i-1], points[i]
+                d = math.sqrt((p2['lat']-p1['lat'])**2 + (p2['lon']-p1['lon'])**2) * 111320 # Approx
+                d_tot += d
+                diff_alt = p2['alt'] - p1['alt']
+                if diff_alt > 0: d_plus += diff_alt
+                else: d_moins += abs(diff_alt)
+            df_pts.append({"Distance (km)": d_tot/1000, "Altitude (m)": points[i]['alt'], "lat": points[i]['lat'], "lon": points[i]['lon']})
+        
+        df_profil = pd.DataFrame(df_pts)
+        
+        # Checkpoints météo
+        nb_points_meteo = 15
+        indices = np.linspace(0, len(df_profil)-1, nb_points_meteo, dtype=int)
+        lats_s = ",".join([str(df_profil.iloc[i]['lat']) for i in indices])
+        lons_s = ",".join([str(df_profil.iloc[i]['lon']) for i in indices])
+        meteo_data = recuperer_meteo_batch(lats_s, lons_s)
+        
+        # Traitement météo
+        checkpoints = []
+        if meteo_data:
+            for idx, i_df in enumerate(indices):
+                d_api = meteo_data[idx]['hourly']
+                checkpoints.append({
+                    "Km": round(df_profil.iloc[i_df]['Distance (km)'], 1),
+                    "Vent": d_api['wind_speed_10m'][0],
+                    "Pluie": d_api['precipitation_probability'][0],
+                    "Temp": d_api['temperature_2m'][0],
+                    "lat": df_profil.iloc[i_df]['lat'], "lon": df_profil.iloc[i_df]['lon']
+                })
 
         # --- AFFICHAGE ---
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Distance", f"{round(dist_totale_m/1000, 1)} km")
-        col2.metric("Dénivelé +", f"{int(d_plus_total)} m")
-        col3.metric("Dénivelé -", f"{int(d_moins_total)} m")
-        col4.metric("Arrivée Est.", (date_depart + timedelta(seconds=temps_total_sec)).strftime("%H:%M"))
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Distance", f"{round(d_tot/1000,1)} km")
+        c2.metric("D+ Total", f"{int(d_plus)} m")
+        c3.metric("D- Total", f"{int(d_moins)} m")
 
-        # --- GRAPHIQUE COMBINÉ ---
-        st.write("### ⛰️ Profil & Conditions (Altitude + Vent/Pluie)")
+        # Graphique Combiné
+        st.subheader(f"Altitude et {data_meteo_view}")
         fig, ax1 = plt.subplots(figsize=(12, 4))
-        ax1.fill_between(df_profil["Distance (km)"], df_profil["Altitude (m)"], color="#3b82f6", alpha=0.1)
-        ax1.plot(df_profil["Distance (km)"], df_profil["Altitude (m)"], color="#3b82f6", lw=2, label="Altitude")
-        ax1.set_ylabel("Altitude (m)", color="#3b82f6")
+        ax1.fill_between(df_profil["Distance (km)"], df_profil["Altitude (m)"], color="gray", alpha=0.2)
+        ax1.plot(df_profil["Distance (km)"], df_profil["Altitude (m)"], color="#3b82f6", lw=2)
+        ax1.set_ylabel("Altitude (m)")
         
         ax2 = ax1.twinx()
-        cp_km = [c['Km'] for c in checkpoints if 'Vent' in c]
-        if cp_km:
-            vent_vals = [c['Vent'] for c in checkpoints if 'Vent' in c]
-            pluie_vals = [c['Pluie'] for c in checkpoints if 'Pluie' in c]
-            ax2.plot(cp_km, vent_vals, color="#ef4444", ls="--", lw=1.5, label="Vent (km/h)")
-            ax2.fill_between(cp_km, 0, pluie_vals, color="#06b6d4", alpha=0.1, label="Pluie %")
-            ax2.set_ylabel("Vent (km/h) / Pluie (%)", color="#ef4444")
+        km_m = [c['Km'] for c in checkpoints]
+        if "Vent" in data_meteo_view:
+            vals = [c['Vent'] for c in checkpoints]; color="#ef4444"
+        elif "Pluie" in data_meteo_view:
+            vals = [c['Pluie'] for c in checkpoints]; color="#06b6d4"
+        else:
+            vals = [c['Temp'] for c in checkpoints]; color="#f59e0b"
             
-        fig.tight_layout()
+        ax2.plot(km_m, vals, color=color, marker="o", ls="--", label=data_meteo_view)
+        ax2.set_ylabel(data_meteo_view, color=color)
         st.pyplot(fig)
 
-        # --- CARTE ---
-        m = folium.Map(location=[points_gpx[0].latitude, points_gpx[0].longitude], zoom_start=12)
-        folium.PolyLine([[p.latitude, p.longitude] for p in points_gpx], color="blue", weight=4).add_to(m)
-        for cp in checkpoints:
-            if 'Temp' in cp:
-                folium.Marker([cp['lat'], cp['lon']], tooltip=f"{cp['Heure']}: {cp['Temp']} - {cp['Effet Vent']}", 
-                              icon=folium.Icon(color="blue", icon="info-sign")).add_to(m)
-        st_folium(m, width=1000, height=400)
+        # Montées
+        st.subheader("⛰️ Montées et Cols")
+        asc = detecter_ascensions_precises(df_profil)
+        if asc: st.table(pd.DataFrame(asc))
+        else: st.write("Aucune difficulté majeure détectée avec les réglages actuels.")
 
-        # --- TABLES ---
-        st.write("### ⛰️ Cols détectés")
-        st.dataframe(pd.DataFrame(ascensions) if ascensions else "Aucun col détecté", use_container_width=True)
-        
-        st.write("### ⏱️ Détails Météo")
-        st.dataframe(pd.DataFrame(checkpoints).drop(columns=['lat','lon','Heure_API','Cap','Dir']), use_container_width=True)
-
-else:
-    st.info("👋 En attente d'un fichier GPX pour analyser le parcours.")
+        # Carte (avec KEY pour éviter le refresh au zoom)
+        st.subheader("📍 Carte du parcours")
+        m = folium.Map(location=[df_profil.iloc[0]['lat'], df_profil.iloc[0]['lon']], zoom_start=11)
+        folium.PolyLine(df_profil[['lat', 'lon']].values, color="blue", weight=3).add_to(m)
+        st_folium(m, width="100%", height=500, key="velo_map")
