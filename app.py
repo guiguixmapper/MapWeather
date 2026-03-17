@@ -334,8 +334,8 @@ def categoriser_uci(distance_m, d_plus):
 # SECTION 3 : DÉTECTION ASCENSIONS
 # ==============================================================================
 
-def lisser(alts, f=7):
-    """Lissage par moyenne mobile."""
+def lisser(alts, f=11):
+    """Lissage par moyenne mobile — fenêtre large pour gommer le bruit GPS."""
     demi, n, r = f//2, len(alts), []
     for i in range(n):
         s, e = max(0,i-demi), min(n,i+demi+1)
@@ -343,88 +343,95 @@ def lisser(alts, f=7):
     return r
 
 
-def trouver_minimum_local(alts, debut_idx, sommet_idx):
-    """
-    Trouve le minimum local le plus proche du sommet dans la fenêtre [debut_idx, sommet_idx].
-    Méthode UCI : le col commence au dernier creux avant le sommet,
-    pas nécessairement au fond de vallée absolu.
-    On cherche le point le plus bas dans la seconde moitié de la fenêtre.
-    """
-    # On divise la fenêtre en deux et on cherche le min dans chaque moitié
-    milieu = (debut_idx + sommet_idx) // 2
-
-    # Minimum absolu sur toute la fenêtre
-    min_abs_idx = min(range(debut_idx, sommet_idx), key=lambda i: alts[i])
-
-    # Si le minimum est dans la première moitié, on affine :
-    # on cherche aussi le minimum dans la seconde moitié (dernier creux avant sommet)
-    min_2eme_moitie_idx = min(range(milieu, sommet_idx), key=lambda i: alts[i])
-
-    # On prend le minimum le plus bas entre les deux
-    if alts[min_2eme_moitie_idx] < alts[min_abs_idx] + 50:
-        # Le dernier creux est proche du min absolu → on prend le dernier creux (UCI)
-        return min_2eme_moitie_idx
-    else:
-        # Grande différence → le vrai fond de vallée est plus tôt, on reste sur le min absolu
-        return min_abs_idx
-
-
-def detecter_sommets(dists, alts):
-    """
-    Détecte les sommets locaux significatifs.
-    Un sommet est valide si on descend d'au moins MARGE_SOMMET depuis lui.
-    MARGE_SOMMET adaptive : 5% de l'amplitude locale, min 50m.
-    """
-    n = len(alts)
-    sommets = []
-    en_montee = False
-    ci = si = 0
-
-    for i in range(1, n):
-        a = alts[i]
-        if not en_montee:
-            if a < alts[ci]: ci = i
-            elif a >= alts[ci] + 20:
-                en_montee = True; si = i
-        else:
-            if a > alts[si]: si = i
-            else:
-                d_plus = alts[si] - alts[ci]
-                marge  = max(50, d_plus * 0.05)
-                if a <= alts[si] - marge:
-                    sommets.append((ci, si))
-                    en_montee = False; ci = i; si = i
-
-    if en_montee and si > ci:
-        sommets.append((ci, si))
-
-    return sommets
-
-
 def detecter_ascensions(df):
     """
-    Détecte les ascensions selon la logique UCI :
-    - On trouve d'abord les sommets locaux significatifs
-    - Pour chaque sommet, le début = minimum local le plus proche (méthode UCI)
-    - On catégorise depuis ce point de départ corrigé
-    - Les cols séparés par une vraie descente restent séparés
+    Détection des ascensions par prominence topographique.
+
+    Principe :
+    1. On lisse le profil pour éliminer le bruit GPS
+    2. On trouve tous les maxima locaux (sommets candidats)
+    3. Pour chaque sommet, on calcule sa "prominence" = hauteur au-dessus
+       du col de selle le plus bas qui le sépare du sommet plus haut le plus proche
+    4. On ne garde que les sommets avec prominence >= PROMINENCE_MIN
+    5. Pour chaque sommet retenu, le début UCI = minimum local entre
+       ce sommet et le précédent sommet retenu (ou le début du parcours)
     """
-    if df.empty or len(df) < 3: return []
-    alts  = df["Altitude (m)"].tolist()
-    dists = df["Distance (km)"].tolist()
-    al    = lisser(alts)
+    if df.empty or len(df) < 10: return []
 
-    sommets_bruts = detecter_sommets(dists, al)
+    alts_raw = df["Altitude (m)"].tolist()
+    dists    = df["Distance (km)"].tolist()
+    n        = len(alts_raw)
+    alts     = lisser(alts_raw)
 
+    PROMINENCE_MIN = 150   # m — seuil pour qu'un sommet soit "réel"
+                           # Le Ventoux : ~1500m prominence / Col de Vars : ~400m / petite bosse : <100m
+
+    # ── 1. Trouver tous les maxima locaux ────────────────────────────────
+    # Un maximum local est plus haut que ses voisins sur une fenêtre de 1km
+    fenetre_pts = max(5, int(1.0 / ((dists[-1] - dists[0]) / n)))
+
+    maxima = []
+    for i in range(fenetre_pts, n - fenetre_pts):
+        if alts[i] == max(alts[i-fenetre_pts:i+fenetre_pts+1]):
+            # Éviter les doublons trop proches (< 2km)
+            if not maxima or dists[i] - dists[maxima[-1]] > 2.0:
+                maxima.append(i)
+
+    if not maxima:
+        return []
+
+    # ── 2. Calculer la prominence de chaque sommet ───────────────────────
+    def min_entre(i, j):
+        """Minimum d'altitude entre les indices i et j."""
+        lo, hi = min(i,j), max(i,j)
+        return min(alts[lo:hi+1])
+
+    prominences = []
+    for idx, s in enumerate(maxima):
+        alt_s = alts[s]
+        # Col de selle = minimum entre ce sommet et le sommet le plus haut parmi les voisins
+        voisins_plus_hauts = [m for m in maxima if m != s and alts[m] >= alt_s * 0.7]
+        if not voisins_plus_hauts:
+            # Sommet unique ou plus haut de tous → prominence = hauteur depuis le début
+            col_selle = min(alts[0:s+1]) if s > 0 else alts[0]
+        else:
+            # Col de selle = max des minima vers chaque voisin plus haut
+            cols = [min_entre(s, v) for v in voisins_plus_hauts]
+            col_selle = max(cols)
+        prominence = alt_s - col_selle
+        prominences.append(prominence)
+
+    # ── 3. Filtrer les sommets significatifs ─────────────────────────────
+    sommets_retenus = [
+        maxima[i] for i, p in enumerate(prominences)
+        if p >= PROMINENCE_MIN
+    ]
+
+    if not sommets_retenus:
+        return []
+
+    # ── 4. Pour chaque sommet, trouver le début UCI ───────────────────────
+    # Le début = minimum d'altitude entre ce sommet et le sommet précédent retenu
+    # (ou le début du parcours pour le premier)
     out = []
-    for debut_brut, sommet_idx in sommets_bruts:
-        # Recalage du point de départ sur le minimum local UCI
-        debut_idx = trouver_minimum_local(al, debut_brut, sommet_idx)
+    for k, sommet_idx in enumerate(sommets_retenus):
+        # Fenêtre de recherche du début
+        if k == 0:
+            debut_fenetre = 0
+        else:
+            prev = sommets_retenus[k-1]
+            debut_fenetre = prev  # on part du sommet précédent
 
-        dk  = dists[sommet_idx] - dists[debut_idx]
-        dp  = alts[sommet_idx]  - alts[debut_idx]
+        # Minimum dans la fenêtre [debut_fenetre, sommet_idx] → point de départ UCI
+        debut_idx = min(
+            range(debut_fenetre, sommet_idx),
+            key=lambda i: alts[i]
+        )
 
-        if dk <= 0 or dp <= 0: continue
+        dk = dists[sommet_idx] - dists[debut_idx]
+        dp = alts_raw[sommet_idx] - alts_raw[debut_idx]
+
+        if dk <= 0 or dp < 50: continue
 
         cat, score = categoriser_uci(dk * 1000, dp)
         if cat is None: continue
@@ -437,8 +444,8 @@ def detecter_ascensions(df):
             "Longueur":    f"{round(dk, 1)} km",
             "Dénivelé":    f"{int(dp)} m",
             "Pente moy.":  f"{round(pm_, 1)} %",
-            "Pente max":   f"{pente_max(dists, alts, debut_idx, sommet_idx)} %",
-            "Alt. sommet": f"{int(alts[sommet_idx])} m",
+            "Pente max":   f"{pente_max(dists, alts_raw, debut_idx, sommet_idx)} %",
+            "Alt. sommet": f"{int(alts_raw[sommet_idx])} m",
             "Score UCI":   score,
             "_debut_km":   dists[debut_idx],
             "_sommet_km":  dists[sommet_idx],
