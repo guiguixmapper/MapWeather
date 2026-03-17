@@ -813,8 +813,12 @@ def main():
                 st.warning(f"⚠️ Arrivée après le coucher ({cs} UTC) — prévoyez un éclairage.")
 
         FONDS_CARTE = {
-            "🗺️ CartoDB Positron (épuré)": ("CartoDB positron", None, None),
-            "🌍 OpenStreetMap (classique)": ("OpenStreetMap", None, None),
+            "🗺️ CartoDB Positron (épuré)": ("CartoDB positron", None),
+            "🌍 OpenStreetMap (classique)": ("OpenStreetMap", None),
+            "🏔️ OpenTopoMap (relief)": (
+                "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
+                "Map data © OpenStreetMap contributors, SRTM | Map style © OpenTopoMap (CC-BY-SA)",
+            ),
         }
         fond_choisi = st.selectbox(
             "🖼️ Fond de carte",
@@ -822,7 +826,7 @@ def main():
             index=0,
             help="Change le style de la carte."
         )
-        tiles, attr, _ = FONDS_CARTE[fond_choisi]
+        tiles, attr = FONDS_CARTE[fond_choisi]
 
         carte = creer_carte(points_gpx, resultats, tiles, attr)
         st_folium(carte, width="100%", height=700, returned_objects=[])
