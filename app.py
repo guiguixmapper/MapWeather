@@ -85,43 +85,21 @@ CSS = """
 """
 
 # ==============================================================================
-# ZONES D'ENTRAÎNEMENT
+# IMPORT DU MODULE ASCENSIONS
 # ==============================================================================
 
-# ── Puissance (% FTP) ──
-ZONES_PUISSANCE = [
-    (0,    0.55, 1, "Z1 Récup",      "#94a3b8"),
-    (0.55, 0.75, 2, "Z2 Endurance",  "#3b82f6"),
-    (0.75, 0.90, 3, "Z3 Tempo",      "#22c55e"),
-    (0.90, 1.05, 4, "Z4 Seuil",      "#eab308"),
-    (1.05, 1.20, 5, "Z5 VO2max",     "#f97316"),
-    (1.20, 999,  6, "Z6 Anaérobie",  "#ef4444"),
-]
-
-# ── Fréquence cardiaque (% FC max) ──
-ZONES_FC = [
-    (0,    0.60, 1, "Z1 Récup",      "#94a3b8"),
-    (0.60, 0.70, 2, "Z2 Endurance",  "#3b82f6"),
-    (0.70, 0.80, 3, "Z3 Tempo",      "#22c55e"),
-    (0.80, 0.90, 4, "Z4 Seuil",      "#eab308"),
-    (0.90, 0.95, 5, "Z5 VO2max",     "#f97316"),
-    (0.95, 999,  6, "Z6 Anaérobie",  "#ef4444"),
-]
-
-
-def get_zone(valeur, ref, zones):
-    """Retourne (num_zone, label, couleur) selon le ratio valeur/ref."""
-    ratio = valeur / ref if ref > 0 else 0
-    for bas, haut, num, lbl, coul in zones:
-        if bas <= ratio < haut:
-            return num, lbl, coul
-    return 6, "Z6 Anaérobie", "#ef4444"
-
-
-def zones_actives(mode):
-    """Retourne la liste de zones selon le mode."""
-    return ZONES_PUISSANCE if mode == "⚡ Puissance" else ZONES_FC
-
+from climbing import (
+    detecter_ascensions,
+    categoriser,
+    estimer_watts,
+    estimer_fc,
+    estimer_temps_col,
+    calculer_calories,
+    get_zone,
+    zones_actives,
+    COULEURS_CAT,
+    LEGENDE_STRAVA,
+)
 
 # ==============================================================================
 # SECTION 1 : UTILITAIRES
@@ -169,81 +147,6 @@ def label_wind_chill(r):
     if r <= -10:    return f"🟠 {r}°C (Dangereux)"
     if r <= 0:      return f"🟡 {r}°C (Froid intense)"
     return                 f"🔵 {r}°C (Frais)"
-
-
-def estimer_watts(pente_pct, vitesse_plat_kmh, poids_kg=75):
-    """
-    Puissance estimée en montée à la vitesse réelle (pas la vitesse plat).
-    En montée on ralentit : chaque % de pente réduit la vitesse de ~10%.
-    """
-    g              = 9.81
-    facteur        = 1 + (pente_pct * 0.10)
-    vitesse_montee = max(5.0, vitesse_plat_kmh / facteur)   # km/h réels en montée
-    vm             = vitesse_montee / 3.6
-    pr             = math.atan(pente_pct / 100)
-    return max(0, int(poids_kg * g * math.sin(pr) * vm + poids_kg * g * 0.004 * vm))
-
-
-def estimer_fc(watts, ftp, fc_max, fc_repos=50):
-    """
-    Estimation FC à partir des watts.
-    Calage : FTP = 85% FC max (zone seuil typique).
-    Interpolation linéaire entre FC repos (0W) et FC max.
-    Résultat strictement borné entre fc_repos et fc_max - 5 bpm
-    (on n'atteint jamais la FC max sur une montée soutenue).
-    """
-    if ftp <= 0 or fc_max <= 0: return None
-    # Watts correspondant à 100% FC max
-    watts_fc_max = ftp / 0.85
-    ratio        = min(watts / watts_fc_max, 0.97)   # plafonné à 97% FC max
-    fc           = fc_repos + ratio * (fc_max - fc_repos)
-    return int(min(fc_max - 3, max(fc_repos, fc)))
-
-
-def calculer_calories(poids_cycliste_kg, duree_sec, dist_m, d_plus_m, vitesse_kmh):
-    """
-    Estimation des calories brûlées sur un parcours vélo.
-    Méthode : MET (Metabolic Equivalent of Task) selon l'intensité moyenne.
-    
-    Le MET vélo varie de ~6 (balade) à ~16 (course intense).
-    On l'estime depuis la vitesse moyenne + le dénivelé relatif.
-    
-    Formule : kcal = MET × poids_kg × durée_h
-    """
-    if poids_cycliste_kg <= 0 or duree_sec <= 0: return 0
-
-    duree_h   = duree_sec / 3600
-    dist_km   = dist_m / 1000
-
-    # Pente moyenne pondérée sur tout le parcours (indicateur d'effort)
-    pente_moy_globale = (d_plus_m / dist_m * 100) if dist_m > 0 else 0
-
-    # MET de base selon la vitesse
-    if vitesse_kmh < 16:      met = 6.0
-    elif vitesse_kmh < 20:    met = 8.0
-    elif vitesse_kmh < 25:    met = 10.0
-    elif vitesse_kmh < 30:    met = 12.0
-    else:                     met = 14.0
-
-    # Bonus MET selon la pente moyenne globale
-    met += pente_moy_globale * 0.8   # chaque % de pente moy ajoute ~0.8 MET
-
-    met = min(met, 18.0)  # plafond raisonnable
-
-    kcal = met * poids_cycliste_kg * duree_h
-    return int(kcal)
-
-
-def estimer_temps_col(dist_km, pente_moy_pct, vitesse_plat_kmh):
-    """
-    Temps estimé pour gravir une montée.
-    Chaque % de pente réduit la vitesse d'environ 10% (empirique).
-    Retourne (minutes, vitesse_montee_kmh).
-    """
-    facteur        = 1 + (pente_moy_pct * 0.10)
-    vitesse_montee = max(5.0, vitesse_plat_kmh / facteur)
-    mins           = int((dist_km / vitesse_montee) * 60)
-    return mins, round(vitesse_montee, 1)
 
 
 def generer_html_resume(score, ascensions, resultats, dist_tot, d_plus, d_moins,
@@ -315,130 +218,7 @@ def generer_html_resume(score, ascensions, resultats, dist_tot, d_plus, d_moins,
 
 
 # ==============================================================================
-# SECTION 2 : UCI
-# ==============================================================================
-
-SEUILS_STRAVA = {
-    "🔴 HC":        80,
-    "🟠 1ère Cat.": 64,
-    "🟡 2ème Cat.": 32,
-    "🟢 3ème Cat.": 16,
-    "🔵 4ème Cat.":  8,
-    "⚪ Non classée": 2,
-}
-
-def categoriser_uci(distance_m, d_plus):
-    """Catégorisation Strava — Score = (D+ × pente moy.) / 100"""
-    if distance_m < 300 or d_plus < 10: return None, 0
-    pm = (d_plus / distance_m) * 100
-    if pm < 2.0: return None, 0
-    score = (d_plus * pm) / 100
-    for lbl, seuil in SEUILS_STRAVA.items():
-        if score >= seuil: return lbl, round(score, 1)
-    return None, 0
-
-
-# ==============================================================================
-# SECTION 3 : DÉTECTION ASCENSIONS
-# ==============================================================================
-
-def lisser(alts, f=7):
-    """Lissage modéré — efface le bruit GPS sans écraser les vraies montées."""
-    demi, n, r = f//2, len(alts), []
-    for i in range(n):
-        s, e = max(0, i-demi), min(n, i+demi+1)
-        r.append(sum(alts[s:e]) / (e-s))
-    return r
-
-
-def detecter_ascensions(df):
-    """
-    Algo simple de détection des montées :
-    - Une montée démarre quand on gagne > 10m depuis le dernier creux
-    - Elle se termine quand on descend de > SEUIL_FIN depuis le sommet
-    - SEUIL_FIN = 40m (ignorer les replats et micro-descentes)
-    - On catégorise avec la formule Strava
-    """
-    if df.empty or len(df) < 3: return []
-
-    alts_raw = df["Altitude (m)"].tolist()
-    dists    = df["Distance (km)"].tolist()
-    alts     = lisser(alts_raw)
-    n        = len(alts)
-
-    SEUIL_DEBUT = 5     # m de gain pour démarrer une montée
-    # SEUIL_FIN est adaptatif : 10% du D+ courant, min 15m, max 80m
-    # → petite côte (100m D+) : seuil fin = 15m
-    # → grande montée (800m D+) : seuil fin = 80m (ignore les replats intermédiaires)
-
-    ascensions = []
-    en_montee  = False
-    creux_idx  = 0
-    sommet_idx = 0
-
-    def enregistrer(debut_idx, som_idx):
-        dk = dists[som_idx] - dists[debut_idx]
-        dp = alts_raw[som_idx] - alts_raw[debut_idx]
-        if dk <= 0 or dp <= 0: return
-        cat, score = categoriser_uci(dk * 1000, dp)
-        if cat is None: return
-        pm = (dp / (dk * 1000)) * 100
-        ascensions.append({
-            "Catégorie":   cat,
-            "Départ (km)": round(dists[debut_idx], 1),
-            "Sommet (km)": round(dists[som_idx], 1),
-            "Longueur":    f"{round(dk, 1)} km",
-            "Dénivelé":    f"{int(dp)} m",
-            "Pente moy.":  f"{round(pm, 1)} %",
-            "Pente max":   f"{pente_max(dists, alts_raw, debut_idx, som_idx)} %",
-            "Alt. sommet": f"{int(alts_raw[som_idx])} m",
-            "Score":       score,
-            "_debut_km":   dists[debut_idx],
-            "_sommet_km":  dists[som_idx],
-            "_pente_moy":  pm,
-        })
-
-    for i in range(1, n):
-        a = alts[i]
-        if not en_montee:
-            if a < alts[creux_idx]:
-                creux_idx = i
-            elif a >= alts[creux_idx] + SEUIL_DEBUT:
-                en_montee  = True
-                sommet_idx = i
-        else:
-            if a > alts[sommet_idx]:
-                sommet_idx = i
-            else:
-                d_plus_courant = alts[sommet_idx] - alts[creux_idx]
-                seuil_fin = max(20, min(100, d_plus_courant * 0.15))
-                if a <= alts[sommet_idx] - seuil_fin:
-                    enregistrer(creux_idx, sommet_idx)
-                    en_montee = False
-                    creux_idx = i
-                    sommet_idx = i
-
-    # Montée encore en cours à la fin du parcours
-    if en_montee:
-        enregistrer(creux_idx, sommet_idx)
-
-    ascensions.sort(key=lambda x: x["_debut_km"])
-    return ascensions
-
-def pente_max(dists, alts, d0, s0):
-    pm = 0.0
-    for i in range(d0+1, s0+1):
-        for j in range(i-1, max(d0-1,i-50), -1):
-            dd = (dists[i]-dists[j])*1000
-            if dd >= 50:
-                p = ((alts[i]-alts[j])/dd)*100
-                if 0 < p <= 40: pm = max(pm, p)
-                break
-    return round(pm, 1)
-
-
-# ==============================================================================
-# SECTION 4 : API (cache)
+# SECTION 2 : API (cache)
 # ==============================================================================
 
 @st.cache_data(show_spinner=False)
@@ -599,12 +379,6 @@ def calculer_score(resultats, ascensions, d_plus, vitesse, ref_val, mode, poids)
 # ==============================================================================
 # SECTION 6 : GRAPHIQUES
 # ==============================================================================
-
-COULEURS_CAT = {
-    "🔴 HC":"#ef4444","🟠 1ère Cat.":"#f97316",
-    "🟡 2ème Cat.":"#eab308","🟢 3ème Cat.":"#22c55e","🔵 4ème Cat.":"#3b82f6",
-    "⚪ Non classée":"#94a3b8",
-}
 
 def creer_figure_profil(df, ascensions, vitesse, ref_val, mode, poids, idx_survol=None):
     fig   = go.Figure()
@@ -1180,8 +954,7 @@ def main():
 
     # ── ASCENSIONS ───────────────────────────────────────────────────────────
     with tab_cols:
-        st.caption("**Catégorisation Strava** — Score = (D+ × pente moy.) / 100 · "
-                   "⚪ Non classée ≥2 · 🔵 4ème ≥8 · 🟢 3ème ≥16 · 🟡 2ème ≥32 · 🟠 1ère ≥64 · 🔴 HC ≥80")
+        st.caption(LEGENDE_STRAVA)
         if ascensions:
             for a in ascensions:
                 w     = estimer_watts(a["_pente_moy"], vitesse, poids)
