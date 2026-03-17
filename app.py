@@ -813,19 +813,8 @@ def main():
                 st.warning(f"⚠️ Arrivée après le coucher ({cs} UTC) — prévoyez un éclairage.")
 
         FONDS_CARTE = {
-            "🗺️ CartoDB Positron (épuré)":    ("CartoDB positron", None, None),
-            "🌑 CartoDB Dark Matter (sombre)": ("CartoDB dark_matter", None, None),
-            "🌍 OpenStreetMap (classique)":    ("OpenStreetMap", None, None),
-            "🏔️ Stamen Terrain (relief)": (
-                "https://stamen-tiles.a.ssl.fastly.net/terrain/{z}/{x}/{y}.jpg",
-                "Map tiles by Stamen Design, CC BY 3.0 — Map data © OpenStreetMap contributors",
-                None,
-            ),
-            "⬛ Stamen Toner (N&B)": (
-                "https://stamen-tiles.a.ssl.fastly.net/toner/{z}/{x}/{y}.png",
-                "Map tiles by Stamen Design, CC BY 3.0 — Map data © OpenStreetMap contributors",
-                None,
-            ),
+            "🗺️ CartoDB Positron (épuré)": ("CartoDB positron", None, None),
+            "🌍 OpenStreetMap (classique)": ("OpenStreetMap", None, None),
         }
         fond_choisi = st.selectbox(
             "🖼️ Fond de carte",
