@@ -178,12 +178,18 @@ def estimer_watts(pente_pct, vitesse_kmh, poids_kg=75):
 
 def estimer_fc(watts, ftp, fc_max, fc_repos=50):
     """
-    Estimation FC à partir des watts via relation linéaire simplifiée.
-    FC = FC_repos + (watts/FTP) * (FC_max - FC_repos) * 0.85
+    Estimation FC à partir des watts.
+    Principe : au FTP, on est à ~90% de la FC max (zone seuil).
+    On interpole linéairement entre FC repos (0W) et FC max (FTP / 0.9).
+    Le résultat est strictement borné entre fc_repos et fc_max.
     """
     if ftp <= 0 or fc_max <= 0: return None
-    ratio = min(watts / ftp, 1.3)
-    return int(fc_repos + ratio * (fc_max - fc_repos) * 0.85)
+    # Watts correspondant à 100% FC max (extrapolation linéaire)
+    watts_fc_max = ftp / 0.90
+    # Ratio entre 0 et 1
+    ratio = watts / watts_fc_max
+    fc = fc_repos + ratio * (fc_max - fc_repos)
+    return int(min(fc_max, max(fc_repos, fc)))
 
 
 # ==============================================================================
@@ -640,11 +646,17 @@ def main():
     if mode == "⚡ Puissance":
         ref_val = st.sidebar.number_input("⚡ FTP (W)", 50, 500, 220,
                     help="Puissance seuil fonctionnelle.")
-        poids = st.sidebar.number_input("⚖️ Poids cycliste + vélo (kg)", 40, 150, 75)
+        fc_max  = None
+        ftp_fc  = ref_val   # en mode puissance, ftp_fc = FTP directement
+        poids   = st.sidebar.number_input("⚖️ Poids cycliste + vélo (kg)", 40, 150, 75)
     else:
         ref_val = st.sidebar.number_input("❤️ FC max (bpm)", 100, 220, 185,
                     help="Fréquence cardiaque maximale.")
-        poids = st.sidebar.number_input("⚖️ Poids cycliste + vélo (kg)", 40, 150, 75)
+        fc_max  = ref_val
+        ftp_fc  = st.sidebar.number_input("⚡ FTP estimé (W)", 50, 500, 220,
+                    help="Optionnel — sert à estimer la FC sur les cols. "
+                         "Si inconnu, laissez la valeur par défaut.")
+        poids   = st.sidebar.number_input("⚖️ Poids cycliste + vélo (kg)", 40, 150, 75)
 
     st.sidebar.divider()
     intervalle     = st.sidebar.selectbox("⏱️ Intervalle checkpoints météo",
@@ -652,14 +664,7 @@ def main():
                        format_func=lambda x: f"Toutes les {x} min")
     intervalle_sec = intervalle * 60
 
-    # Légende zones dans la sidebar
-    st.sidebar.divider()
-    st.sidebar.markdown("**Zones d'entraînement**")
-    for _, _, num, lbl, coul in zones_actives(mode):
-        st.sidebar.markdown(
-            f'<span style="background:{coul};color:white;border-radius:4px;'
-            f'padding:2px 8px;font-size:.75rem">{lbl}</span>',
-            unsafe_allow_html=True)
+
 
     ph_fuseau = st.sidebar.empty()
     ph_fuseau.info("🌍 Fuseau : en attente…")
@@ -855,7 +860,7 @@ def main():
                 if mode == "⚡ Puissance":
                     a["Effort val"] = f"{pct}% FTP"
                 else:
-                    fc_est = estimer_fc(w, ref_val*0.85, ref_val)  # ftp estimé à 85% FCmax
+                    fc_est = estimer_fc(w, ftp_fc, ref_val)
                     a["Effort val"] = f"~{fc_est} bpm" if fc_est else "—"
                 a["Zone"]   = zlbl
                 a["Effort"] = ("🔴 Max" if pct>105 else "🟠 Très dur" if pct>95
