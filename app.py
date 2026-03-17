@@ -431,7 +431,7 @@ def creer_figure_profil(df_profil, ascensions, idx_survol=None):
 
 def creer_figure_vent(resultats_meteo):
     """Graphique vent + rafales interactif."""
-    kms, vents, rafales, couleurs, effets = [], [], [], [], []
+    kms, vents, rafales, couleurs = [], [], [], []
 
     for cp in resultats_meteo:
         v = cp.get("vent_val")
@@ -440,7 +440,6 @@ def creer_figure_vent(resultats_meteo):
         kms.append(cp["Km"])
         vents.append(v)
         rafales.append(cp.get("rafales_val") or v)
-        effets.append(cp.get("effet", "—"))
         if v >= 40:   couleurs.append("#ef4444")
         elif v >= 25: couleurs.append("#f97316")
         elif v >= 10: couleurs.append("#eab308")
@@ -474,6 +473,56 @@ def creer_figure_vent(resultats_meteo):
         plot_bgcolor="white",
         paper_bgcolor="white",
         barmode="overlay",
+    )
+    return fig
+
+
+def creer_figure_pluie(resultats_meteo):
+    """Graphique probabilité de pluie interactif."""
+    kms, pluies, couleurs = [], [], []
+
+    for cp in resultats_meteo:
+        pluie_str = cp.get("Pluie", "—")
+        try:
+            pct = int(str(pluie_str).replace("%", "").strip())
+        except (ValueError, AttributeError):
+            continue
+        kms.append(cp["Km"])
+        pluies.append(pct)
+        if pct >= 70:   couleurs.append("#1d4ed8")
+        elif pct >= 40: couleurs.append("#3b82f6")
+        elif pct >= 20: couleurs.append("#93c5fd")
+        else:           couleurs.append("#dbeafe")
+
+    fig = go.Figure()
+
+    if kms:
+        fig.add_trace(go.Bar(
+            x=kms, y=pluies,
+            marker_color=couleurs,
+            name="Prob. pluie",
+            hovertemplate="<b>Km %{x}</b><br>Pluie : %{y}%<extra></extra>",
+        ))
+        # Ligne de seuil à 50%
+        fig.add_hline(
+            y=50,
+            line_dash="dot",
+            line_color="#94a3b8",
+            annotation_text="50%",
+            annotation_position="right",
+            annotation_font_size=10,
+        )
+
+    fig.update_layout(
+        height=200,
+        margin=dict(l=50, r=20, t=10, b=40),
+        xaxis=dict(title="Distance (km)", showgrid=True, gridcolor="#e5e7eb"),
+        yaxis=dict(title="Prob. pluie (%)", showgrid=True, gridcolor="#e5e7eb",
+                   rangemode="tozero", range=[0, 105]),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02),
+        hovermode="x unified",
+        plot_bgcolor="white",
+        paper_bgcolor="white",
     )
     return fig
 
@@ -576,7 +625,15 @@ def creer_carte(points_gpx, resultats_meteo):
         folium.Marker(
             [cp["lat"], cp["lon"]],
             popup=folium.Popup(popup_html, max_width=280),
-            tooltip=f"{cp['Heure']} | {cp['Ciel']} {t}°C | 💨 {cp.get('vent_val','—')} km/h",
+            tooltip=folium.Tooltip(
+                f"{cp['Heure']} | {cp['Ciel']} {t}°C | "
+                + (f'<svg width="14" height="14" viewBox="0 0 28 28" style="vertical-align:middle">'
+                   f'<g transform="rotate({(dir_deg+180)%360},14,14)">'
+                   f'<polygon points="14,2 20,22 14,18 8,22" fill="{fleche_couleur}"/>'
+                   f'</g></svg> ' if dir_deg is not None else "💨 ")
+                + f"{vent_val} km/h ({cp['Dir']})",
+                sticky=True,
+            ),
             icon=folium.Icon(color="blue", icon="info-sign"),
         ).add_to(carte)
 
@@ -763,19 +820,31 @@ def main():
         fig_profil = creer_figure_profil(df_profil, ascensions, idx_survol)
         st.plotly_chart(fig_profil, use_container_width=True)
 
-    # ── 4. VENT ───────────────────────────────────────────────────────────────
+    # ── 4. VENT + PLUIE ───────────────────────────────────────────────────────
     if not erreur_meteo:
-        st.subheader("💨 Vent sur le parcours")
-        st.caption("Barres colorées = intensité du vent moyen. Pointillés = rafales.")
-        fig_vent = creer_figure_vent(resultats_meteo)
-        st.plotly_chart(fig_vent, use_container_width=True)
+        col_vent, col_pluie = st.columns(2)
 
-        # Légende couleurs vent
-        col_leg = st.columns(4)
-        col_leg[0].markdown("🟢 **< 10 km/h** — Faible")
-        col_leg[1].markdown("🟡 **10–25 km/h** — Léger")
-        col_leg[2].markdown("🟠 **25–40 km/h** — Modéré")
-        col_leg[3].markdown("🔴 **> 40 km/h** — Fort")
+        with col_vent:
+            st.subheader("💨 Vent sur le parcours")
+            st.caption("Barres colorées = intensité du vent moyen. Pointillés = rafales.")
+            fig_vent = creer_figure_vent(resultats_meteo)
+            st.plotly_chart(fig_vent, use_container_width=True)
+            leg = st.columns(4)
+            leg[0].markdown("🟢 **< 10**")
+            leg[1].markdown("🟡 **10–25**")
+            leg[2].markdown("🟠 **25–40**")
+            leg[3].markdown("🔴 **> 40 km/h**")
+
+        with col_pluie:
+            st.subheader("🌧️ Probabilité de pluie")
+            st.caption("Barres bleues = risque de précipitations. Ligne pointillée = seuil 50%.")
+            fig_pluie = creer_figure_pluie(resultats_meteo)
+            st.plotly_chart(fig_pluie, use_container_width=True)
+            leg2 = st.columns(4)
+            leg2[0].markdown("🔵 **< 20%**")
+            leg2[1].markdown("🔵 **20–40%**")
+            leg2[2].markdown("🔵 **40–70%**")
+            leg2[3].markdown("🔵 **> 70%**")
 
     # ── 5. TABLEAU ASCENSIONS ────────────────────────────────────────────────
     st.divider()
