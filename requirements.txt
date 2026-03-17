@@ -1,0 +1,7 @@
+streamlit
+pandas
+gpxpy
+folium
+streamlit-folium
+requests
+matplotlib
