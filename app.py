@@ -346,8 +346,10 @@ def lisser(alts, f=11):
 def detecter_ascensions(df):
     """
     Détection par prominence topographique.
-    Correction clé : début UCI = minimum entre deux sommets CONSÉCUTIFS retenus,
-    pas depuis le début du parcours (évite de diluer la pente sur les premières km plats).
+    Corrections :
+    - Le dernier point du parcours est toujours ajouté comme sommet candidat
+      (cas d'une étape qui finit au sommet d'un col)
+    - Fusion des faux sommets intermédiaires sur une même montée
     """
     if df.empty or len(df) < 10: return []
 
@@ -356,10 +358,10 @@ def detecter_ascensions(df):
     n        = len(alts_raw)
     alts     = lisser(alts_raw)
 
-    PROMINENCE_MIN = 80    # assez bas pour 4ème cat, filtrage par score UCI ensuite
+    PROMINENCE_MIN = 80
 
     # ── 1. Maxima locaux (fenêtre ~1.5km) ────────────────────────────────
-    ecart  = (dists[-1] - dists[0]) / n if n > 1 else 0.1
+    ecart   = (dists[-1] - dists[0]) / n if n > 1 else 0.1
     fenetre = max(5, int(1.5 / ecart))
 
     maxima = []
@@ -367,7 +369,13 @@ def detecter_ascensions(df):
         if alts[i] == max(alts[max(0,i-fenetre):i+fenetre+1]):
             if not maxima or dists[i] - dists[maxima[-1]] > 1.5:
                 maxima.append(i)
-    if not maxima: return []
+
+    # Toujours ajouter le dernier point comme candidat sommet
+    # (étape qui se termine sur un col)
+    if not maxima or dists[-1] - dists[maxima[-1]] > 2.0:
+        maxima.append(n - 1)
+    elif alts[-1] > alts[maxima[-1]]:
+        maxima[-1] = n - 1
 
     # ── 2. Prominence ────────────────────────────────────────────────────
     def min_entre(i, j):
@@ -379,20 +387,38 @@ def detecter_ascensions(df):
         alt_s   = alts[s]
         voisins = [m for m in maxima if m != s and alts[m] >= alt_s * 0.65]
         col     = max((min_entre(s,v) for v in voisins),
-                      default=min(alts[max(0,s-fenetre*3):s+1]))
+                      default=min(alts[max(0, s - fenetre*3):s+1]))
         if alt_s - col >= PROMINENCE_MIN:
             sommets_ok.append(s)
+
     if not sommets_ok: return []
 
-    # ── 3. Début UCI = min entre deux sommets consécutifs ─────────────────
+    # ── 3. Fusion des faux sommets intermédiaires ─────────────────────────
+    # Si le creux entre deux sommets consécutifs > 70% de l'altitude
+    # du plus bas → même montée, on garde le plus haut
+    def fusionner_sommets(soms):
+        if len(soms) <= 1: return soms
+        fus = [soms[0]]
+        for s in soms[1:]:
+            prev  = fus[-1]
+            creux = min_entre(prev, s)
+            alt_bas = min(alts[prev], alts[s])
+            if creux > alt_bas * 0.70:
+                fus[-1] = s if alts[s] > alts[prev] else prev
+            else:
+                fus.append(s)
+        return fus
+
+    sommets_fus = fusionner_sommets(sommets_ok)
+
+    # ── 4. Début UCI = min entre deux sommets consécutifs ─────────────────
     out = []
-    for k, sommet_idx in enumerate(sommets_ok):
+    for k, sommet_idx in enumerate(sommets_fus):
         if k == 0:
-            # Premier sommet : début = min dans la 2ème moitié avant lui
             milieu    = sommet_idx // 2
             debut_idx = min(range(milieu, sommet_idx), key=lambda i: alts[i])
         else:
-            prev      = sommets_ok[k - 1]
+            prev      = sommets_fus[k - 1]
             debut_idx = min(range(prev, sommet_idx), key=lambda i: alts[i])
 
         dk = dists[sommet_idx] - dists[debut_idx]
