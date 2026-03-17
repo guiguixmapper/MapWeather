@@ -342,8 +342,8 @@ def categoriser_uci(distance_m, d_plus):
 # SECTION 3 : DÉTECTION ASCENSIONS
 # ==============================================================================
 
-def lisser(alts, f=5):
-    """Lissage léger pour effacer le bruit GPS sans déformer le profil."""
+def lisser(alts, f=15):
+    """Lissage par moyenne mobile — f=15 pour bien effacer le bruit GPS."""
     demi, n, r = f//2, len(alts), []
     for i in range(n):
         s, e = max(0, i-demi), min(n, i+demi+1)
@@ -411,7 +411,7 @@ def detecter_ascensions(df):
                 sommet_idx = i
             else:
                 d_plus_courant = alts[sommet_idx] - alts[creux_idx]
-                seuil_fin = max(15, min(80, d_plus_courant * 0.10))
+                seuil_fin = max(25, min(150, d_plus_courant * 0.12))
                 if a <= alts[sommet_idx] - seuil_fin:
                     enregistrer(creux_idx, sommet_idx)
                     en_montee = False
