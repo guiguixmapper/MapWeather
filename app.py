@@ -192,15 +192,38 @@ def estimer_fc(watts, ftp, fc_max, fc_repos=50):
     return int(min(fc_max, max(fc_repos, fc)))
 
 
-def calculer_calories(poids_cycliste_kg, duree_sec, watts_moy):
+def calculer_calories(poids_cycliste_kg, duree_sec, dist_m, d_plus_m, vitesse_kmh):
     """
-    Calories brûlées via dépense mécanique.
-    Efficacité mécanique du corps ≈ 24% → on divise par 0.24.
-    1 kcal = 4184 J.
+    Estimation des calories brûlées sur un parcours vélo.
+    Méthode : MET (Metabolic Equivalent of Task) selon l'intensité moyenne.
+    
+    Le MET vélo varie de ~6 (balade) à ~16 (course intense).
+    On l'estime depuis la vitesse moyenne + le dénivelé relatif.
+    
+    Formule : kcal = MET × poids_kg × durée_h
     """
-    if poids_cycliste_kg <= 0 or duree_sec <= 0 or watts_moy <= 0: return 0
-    joules = watts_moy * duree_sec
-    return int(joules / (0.24 * 4184))
+    if poids_cycliste_kg <= 0 or duree_sec <= 0: return 0
+
+    duree_h   = duree_sec / 3600
+    dist_km   = dist_m / 1000
+
+    # Pente moyenne pondérée sur tout le parcours (indicateur d'effort)
+    pente_moy_globale = (d_plus_m / dist_m * 100) if dist_m > 0 else 0
+
+    # MET de base selon la vitesse
+    if vitesse_kmh < 16:      met = 6.0
+    elif vitesse_kmh < 20:    met = 8.0
+    elif vitesse_kmh < 25:    met = 10.0
+    elif vitesse_kmh < 30:    met = 12.0
+    else:                     met = 14.0
+
+    # Bonus MET selon la pente moyenne globale
+    met += pente_moy_globale * 0.8   # chaque % de pente moy ajoute ~0.8 MET
+
+    met = min(met, 18.0)  # plafond raisonnable
+
+    kcal = met * poids_cycliste_kg * duree_h
+    return int(kcal)
 
 
 def estimer_temps_col(dist_km, pente_moy_pct, vitesse_plat_kmh):
@@ -939,9 +962,9 @@ def main():
     dh = int(temps_s//3600); dm = int((temps_s%3600)//60)
     score = calculer_score(resultats, ascensions, d_plus, vitesse, ref_val, mode, poids)
 
-    # Calories : puissance moyenne estimée sur tout le parcours
-    watts_plat = estimer_watts(0, vitesse, poids)
-    calories   = calculer_calories(poids - 10, temps_s, watts_plat)  # poids_cycliste ≈ poids_total - 10kg vélo
+    # Calories : formule MET selon vitesse + dénivelé relatif
+    poids_cycliste = max(1, poids - 10)  # poids_total - ~10kg vélo
+    calories = calculer_calories(poids_cycliste, temps_s, dist_tot, d_plus, vitesse)
 
     # Temps par col + heure d'arrivée au sommet
     temps_ecoule_s = 0.0
