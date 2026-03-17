@@ -15,6 +15,8 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import math
 import logging
+import io
+import base64
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -184,12 +186,101 @@ def estimer_fc(watts, ftp, fc_max, fc_repos=50):
     Le résultat est strictement borné entre fc_repos et fc_max.
     """
     if ftp <= 0 or fc_max <= 0: return None
-    # Watts correspondant à 100% FC max (extrapolation linéaire)
     watts_fc_max = ftp / 0.90
-    # Ratio entre 0 et 1
     ratio = watts / watts_fc_max
     fc = fc_repos + ratio * (fc_max - fc_repos)
     return int(min(fc_max, max(fc_repos, fc)))
+
+
+def calculer_calories(poids_cycliste_kg, duree_sec, watts_moy):
+    """
+    Calories brûlées via dépense mécanique.
+    Efficacité mécanique du corps ≈ 24% → on divise par 0.24.
+    1 kcal = 4184 J.
+    """
+    if poids_cycliste_kg <= 0 or duree_sec <= 0 or watts_moy <= 0: return 0
+    joules = watts_moy * duree_sec
+    return int(joules / (0.24 * 4184))
+
+
+def estimer_temps_col(dist_km, pente_moy_pct, vitesse_plat_kmh):
+    """
+    Temps estimé pour gravir une montée.
+    Chaque % de pente réduit la vitesse d'environ 10% (empirique).
+    Retourne (minutes, vitesse_montee_kmh).
+    """
+    facteur        = 1 + (pente_moy_pct * 0.10)
+    vitesse_montee = max(5.0, vitesse_plat_kmh / facteur)
+    mins           = int((dist_km / vitesse_montee) * 60)
+    return mins, round(vitesse_montee, 1)
+
+
+def generer_html_resume(score, ascensions, resultats, dist_tot, d_plus, d_moins,
+                        temps_s, heure_depart, heure_arr, vitesse, calories):
+    """Génère un résumé HTML téléchargeable (pas besoin de lib externe)."""
+    dh = int(temps_s//3600); dm = int((temps_s%3600)//60)
+
+    cols_html = ""
+    for a in ascensions:
+        cols_html += (
+            f"<tr><td>{a['Catégorie']}</td><td>{a['Départ (km)']} km</td>"
+            f"<td>{a['Longueur']}</td><td>{a['Dénivelé']}</td>"
+            f"<td>{a['Pente moy.']}</td><td>{a.get('Temps col','—')}</td>"
+            f"<td>{a.get('Arrivée sommet','—')}</td></tr>"
+        )
+
+    meteo_html = ""
+    for cp in resultats[:10]:
+        t = cp.get('temp_val')
+        meteo_html += (
+            f"<tr><td>{cp['Heure']}</td><td>{cp['Km']} km</td>"
+            f"<td>{cp.get('Ciel','—')}</td><td>{f'{t}°C' if t else '—'}</td>"
+            f"<td>{cp.get('Pluie','—')}</td><td>{cp.get('vent_val','—')} km/h</td>"
+            f"<td>{cp.get('effet','—')}</td></tr>"
+        )
+
+    return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>
+  body{{font-family:Arial,sans-serif;padding:32px;color:#1e293b;max-width:900px;margin:auto}}
+  h1{{color:#1e40af;border-bottom:3px solid #1e40af;padding-bottom:8px}}
+  h2{{color:#1e40af;margin-top:28px}}
+  .score{{background:#1e40af;color:white;border-radius:10px;padding:14px 20px;
+          font-size:1.1rem;font-weight:700;margin:12px 0;display:inline-block}}
+  .grid{{display:flex;gap:14px;flex-wrap:wrap;margin:14px 0}}
+  .card{{background:#f1f5f9;border-radius:8px;padding:12px 18px;text-align:center;min-width:110px}}
+  .card .v{{font-size:1.4rem;font-weight:700;color:#1e40af}}
+  .card .l{{font-size:.72rem;color:#64748b;margin-top:3px}}
+  table{{width:100%;border-collapse:collapse;margin-top:10px;font-size:.83rem}}
+  th{{background:#1e40af;color:white;padding:8px;text-align:left}}
+  td{{padding:6px 8px;border-bottom:1px solid #e2e8f0}}
+  tr:nth-child(even) td{{background:#f8fafc}}
+</style></head><body>
+<h1>🚴‍♂️ Résumé de sortie vélo</h1>
+<p>Généré le {datetime.now().strftime('%d/%m/%Y à %H:%M')} · Départ : {heure_depart.strftime('%d/%m/%Y %H:%M')}</p>
+<div class="score">{score['label']} — {score['total']}/10 &nbsp;|&nbsp;
+  🌤️ Météo {score['score_meteo']}/4 &nbsp;|&nbsp;
+  ⛰️ Cols {score['score_cols']}/3 &nbsp;|&nbsp;
+  ⚡ Effort {score['score_effort']}/3</div>
+<div class="grid">
+  <div class="card"><div class="v">{round(dist_tot/1000,1)} km</div><div class="l">📏 Distance</div></div>
+  <div class="card"><div class="v">{int(d_plus)} m</div><div class="l">⬆️ Dénivelé +</div></div>
+  <div class="card"><div class="v">{int(d_moins)} m</div><div class="l">⬇️ Dénivelé −</div></div>
+  <div class="card"><div class="v">{dh}h{dm:02d}m</div><div class="l">⏱️ Durée</div></div>
+  <div class="card"><div class="v">{heure_arr.strftime('%H:%M')}</div><div class="l">🏁 Arrivée</div></div>
+  <div class="card"><div class="v">{vitesse} km/h</div><div class="l">🚴 Vitesse moy.</div></div>
+  <div class="card"><div class="v">{calories} kcal</div><div class="l">🔥 Calories</div></div>
+</div>
+<h2>🏔️ Ascensions détectées</h2>
+{"<p>Aucune difficulté catégorisée.</p>" if not ascensions else
+ "<table><tr><th>Catégorie</th><th>Départ</th><th>Longueur</th><th>D+</th>"
+ "<th>Pente moy.</th><th>Temps col</th><th>Arrivée sommet</th></tr>"
+ + cols_html + "</table>"}
+<h2>🌤️ Conditions météo</h2>
+{"<p>Données météo indisponibles.</p>" if not meteo_html else
+ "<table><tr><th>Heure</th><th>Km</th><th>Ciel</th><th>Temp</th>"
+ "<th>Pluie</th><th>Vent</th><th>Effet</th></tr>"
+ + meteo_html + "</table>"}
+</body></html>""".encode("utf-8")
 
 
 # ==============================================================================
@@ -554,7 +645,7 @@ def creer_figure_meteo(resultats):
 # SECTION 7 : CARTE
 # ==============================================================================
 
-def creer_carte(points_gpx, resultats, tiles="CartoDB positron", attr=None):
+def creer_carte(points_gpx, resultats, ascensions, tiles="CartoDB positron", attr=None):
     kwargs = dict(location=[points_gpx[0].latitude, points_gpx[0].longitude],
                   zoom_start=11, tiles=tiles, scrollWheelZoom=True)
     if attr:
@@ -568,6 +659,33 @@ def creer_carte(points_gpx, resultats, tiles="CartoDB positron", attr=None):
     folium.Marker([points_gpx[-1].latitude, points_gpx[-1].longitude],
                   tooltip="🏁 Arrivée",
                   icon=folium.Icon(color="red",icon="flag",prefix="fa")).add_to(carte)
+
+    # ── Marqueurs de cols ─────────────────────────────────────────────────
+    COULEUR_COL = {
+        "🔴 HC":"red", "🟠 1ère Cat.":"orange",
+        "🟡 2ème Cat.":"beige", "🟢 3ème Cat.":"green", "🔵 4ème Cat.":"blue",
+    }
+    cps_avec_coords = [cp for cp in resultats if cp.get("temp_val") is not None or True]
+    for asc in ascensions:
+        best = min(cps_avec_coords, key=lambda cp: abs(cp["Km"] - asc["_sommet_km"]), default=None)
+        if best is None: continue
+        coul = COULEUR_COL.get(asc["Catégorie"], "blue")
+        popup_col = (
+            '<div style="font-family:sans-serif;font-size:12px;min-width:180px">'
+            f'<div style="font-weight:700;font-size:14px;margin-bottom:6px">{asc["Catégorie"]}</div>'
+            f'<div>📏 {asc["Longueur"]} &nbsp;·&nbsp; D+ {asc["Dénivelé"]}</div>'
+            f'<div>📐 Pente moy. {asc["Pente moy."]} &nbsp;·&nbsp; max {asc["Pente max"]}</div>'
+            f'<div>⛰️ Sommet : {asc["Alt. sommet"]}</div>'
+            + (f'<div style="margin-top:5px">⏱️ {asc.get("Temps col","—")} &nbsp;·&nbsp; arr. {asc.get("Arrivée sommet","—")}</div>'
+               if asc.get("Temps col") else "")
+            + '</div>'
+        )
+        folium.Marker(
+            [best["lat"], best["lon"]],
+            popup=folium.Popup(popup_col, max_width=240),
+            tooltip=folium.Tooltip(f'▲ {asc["Catégorie"]} — {asc["Alt. sommet"]}', sticky=True),
+            icon=folium.Icon(color=coul, icon="chevron-up", prefix="fa"),
+        ).add_to(carte)
 
     for cp in resultats:
         t = cp.get("temp_val")
@@ -763,6 +881,22 @@ def main():
     # ── SCORE GLOBAL + MÉTRIQUES ─────────────────────────────────────────────
     dh = int(temps_s//3600); dm = int((temps_s%3600)//60)
     score = calculer_score(resultats, ascensions, d_plus, vitesse, ref_val, mode, poids)
+
+    # Calories : puissance moyenne estimée sur tout le parcours
+    watts_plat = estimer_watts(0, vitesse, poids)
+    calories   = calculer_calories(poids - 10, temps_s, watts_plat)  # poids_cycliste ≈ poids_total - 10kg vélo
+
+    # Temps par col + heure d'arrivée au sommet
+    temps_ecoule_s = 0.0
+    for asc in ascensions:
+        # Temps pour atteindre le début du col (distance plat)
+        temps_jusqu_debut = (asc["_debut_km"] / vitesse) * 3600
+        # Temps pour gravir le col
+        dist_col  = asc["_sommet_km"] - asc["_debut_km"]
+        mins_col, vit_col = estimer_temps_col(dist_col, asc["_pente_moy"], vitesse)
+        heure_sommet = date_depart + timedelta(seconds=temps_jusqu_debut) + timedelta(minutes=mins_col)
+        asc["Temps col"]       = f"{mins_col} min ({vit_col} km/h)"
+        asc["Arrivée sommet"]  = heure_sommet.strftime("%H:%M")
     st.markdown(f"""
     <div style="background:linear-gradient(135deg,#1e3a5f,#1e40af);border-radius:12px;
                 padding:16px 24px;color:white;margin:12px 0;
@@ -811,6 +945,11 @@ def main():
           <div style="font-size:.9rem;font-weight:600;color:rgba(255,255,255,0.85)">cols</div>
           <div style="font-size:.75rem;color:rgba(255,255,255,0.6);margin-top:1px">🏔️ Détectés</div>
         </div>
+        <div style="flex:1;min-width:90px;text-align:center;padding:6px 12px;border-left:1px solid rgba(255,255,255,0.2)">
+          <div style="font-size:1.9rem;font-weight:800;line-height:1.1">{calories}</div>
+          <div style="font-size:.9rem;font-weight:600;color:rgba(255,255,255,0.85)">kcal</div>
+          <div style="font-size:.75rem;color:rgba(255,255,255,0.6);margin-top:1px">🔥 Calories</div>
+        </div>
       </div>
 
     </div>""", unsafe_allow_html=True)
@@ -857,8 +996,20 @@ def main():
         )
         tiles, attr = FONDS_CARTE[fond_choisi]
 
-        carte = creer_carte(points_gpx, resultats, tiles, attr)
+        carte = creer_carte(points_gpx, resultats, ascensions, tiles, attr)
         st_folium(carte, width="100%", height=700, returned_objects=[])
+
+        # ── Export HTML ───────────────────────────────────────────────────
+        st.divider()
+        if st.button("📤 Exporter le résumé (HTML)", use_container_width=True):
+            html_bytes = generer_html_resume(
+                score, ascensions, resultats, dist_tot, d_plus, d_moins,
+                temps_s, date_depart, heure_arr, vitesse, calories
+            )
+            nom = f"velo_meteo_{date_dep.strftime('%Y%m%d')}.html"
+            b64 = base64.b64encode(html_bytes).decode()
+            href = f'<a href="data:text/html;base64,{b64}" download="{nom}" style="display:block;text-align:center;background:#1e40af;color:white;padding:10px;border-radius:8px;text-decoration:none;font-weight:600;margin-top:8px">⬇️ Télécharger {nom}</a>'
+            st.markdown(href, unsafe_allow_html=True)
 
     # ── PROFIL ───────────────────────────────────────────────────────────────
     with tab_profil:
@@ -920,13 +1071,15 @@ def main():
                                else "🔵 Endurance")
             cols_aff = ["Catégorie","Départ (km)","Sommet (km)","Longueur",
                         "Dénivelé","Pente moy.","Pente max","Alt. sommet",
-                        "Score UCI","Puissance","Effort val","Zone","Effort"]
+                        "Score UCI","Temps col","Arrivée sommet","Puissance","Effort val","Zone","Effort"]
             st.dataframe(pd.DataFrame(ascensions)[cols_aff],
                 use_container_width=True, hide_index=True,
                 column_config={
                     "Effort val": st.column_config.TextColumn(
                         "% FTP" if mode=="⚡ Puissance" else "FC estimée",
                         help="Pourcentage FTP ou FC estimée selon le mode sélectionné"),
+                    "Temps col":      st.column_config.TextColumn("⏱️ Temps col",     help="Durée estimée pour gravir la montée"),
+                    "Arrivée sommet": st.column_config.TextColumn("🏁 Arrivée sommet", help="Heure estimée d'arrivée au sommet"),
                     "Zone":   st.column_config.TextColumn("Zone",   help="Zone d'entraînement"),
                     "Effort": st.column_config.TextColumn("Effort", help="Intensité estimée"),
                 })
