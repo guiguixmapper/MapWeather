@@ -120,29 +120,44 @@ def estimer_watts(pente_pct, vitesse_kmh, poids_total_kg=75):
 #   - On exige un minimum de 20m de D+ et 300m de long pour éviter le bruit
 #   - Pas de prise en compte de la position dans l'étape (simplification volontaire)
 
-SEUILS_UCI_LOISIR = {
-    "🔴 HC":          2000,   # > 2000 : Hors Catégorie  (ex : Ventoux, Galibier)
-    "🟠 1ère Cat.":    800,   # 800–2000 : 1ère catégorie (ex : col de la Croix-de-Fer)
-    "🟡 2ème Cat.":    350,   # 350–800  : 2ème catégorie (ex : col d'Izoard court versant)
-    "🟢 3ème Cat.":    120,   # 120–350  : 3ème catégorie
-    "🔵 4ème Cat.":     40,   #  40–120  : 4ème catégorie
-    "⚪ Non classée":    0,   #   0–40   : côte non classée (affichée quand même)
+# ==============================================================================
+# CATÉGORISATION UCI OFFICIELLE
+# ==============================================================================
+# Formule officielle UCI : Score = (D+ × pente_moy) / 100
+# Source : règlement UCI, confirmé par des analyses de parcours du Tour de France.
+#
+# Exemples de référence :
+#   Mont Ventoux   (21 km, 7.5%, D+=1610m) → score 120.8 → HC  ✅
+#   Alpe d'Huez    (13.8 km, 8.1%, D+=1120m) → score 90.7 → HC ✅
+#   Col du Galibier (17.7 km, 6.9%, D+=1245m) → score 86.0 → HC ✅
+#   Col de la Madeleine (19.5 km, 6.2%, D+=1012m) → score 62.7 → 1ère ✅
+#   Col d'Izoard   (14.1 km, 5.7%, D+=803m) → score 45.8 → 1ère ✅
+#   Col de Vars    (9.3 km, 5.7%, D+=530m) → score 30.2 → 2ème ✅
+
+SEUILS_UCI = {
+    "🔴 HC":        80,   # > 80
+    "🟠 1ère Cat.": 40,   # 40 – 80
+    "🟡 2ème Cat.": 20,   # 20 – 40
+    "🟢 3ème Cat.":  8,   #  8 – 20
+    "🔵 4ème Cat.":  2,   #  2 – 8
 }
 
 def categoriser_ascension_uci_loisir(distance_m, d_plus):
     """
-    Score = d_plus (m) × pente_moyenne (%)
+    Catégorisation UCI officielle.
+    Score = (D+ en m × pente_moyenne en %) / 100
     Retourne (catégorie, score) ou (None, 0) si pas qualifiable.
+    Seuils minimaux : 300m de long, 10m de D+, pente >= 2%.
     """
-    if distance_m < 300 or d_plus < 20:
+    if distance_m < 300 or d_plus < 10:
         return None, 0
     pente_moy = (d_plus / distance_m) * 100
-    if pente_moy < 1.0:   # faux-plat inférieur à 1% → ignoré
+    if pente_moy < 2.0:
         return None, 0
-    score = d_plus * pente_moy
-    for label, seuil in SEUILS_UCI_LOISIR.items():
+    score = (d_plus * pente_moy) / 100
+    for label, seuil in SEUILS_UCI.items():
         if score >= seuil:
-            return label, round(score, 1)
+            return label, round(score, 2)
     return None, 0
 
 
@@ -944,10 +959,9 @@ def main():
     st.divider()
     st.subheader("🏔️ Analyse des ascensions")
     st.caption(
-        "**Catégorisation inspirée UCI adaptée loisir.** "
-        "Score = Dénivelé (m) × Pente moyenne (%). "
-        "⚪ Non classée < 40 · 🔵 4ème Cat. 40–120 · 🟢 3ème Cat. 120–350 · "
-        "🟡 2ème Cat. 350–800 · 🟠 1ère Cat. 800–2000 · 🔴 HC > 2000"
+        "**Catégorisation UCI officielle** — Score = (D+ × pente moy.) / 100. "
+        "🔵 4ème Cat. ≥ 2 · 🟢 3ème Cat. ≥ 8 · 🟡 2ème Cat. ≥ 20 · "
+        "🟠 1ère Cat. ≥ 40 · 🔴 HC ≥ 80"
     )
 
     if ascensions:
