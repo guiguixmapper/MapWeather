@@ -13,12 +13,14 @@ import numpy as np
 st.set_page_config(page_title="Vélo Météo Pro", layout="wide")
 
 # --- FONCTIONS TECHNIQUES ---
-def calculer_cap(lat1, lon1, lat2, lon2):
-    lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
-    dlon = lon2 - lon1
-    x = math.sin(dlon) * math.cos(lat2)
-    y = math.cos(lat1) * math.sin(lat2) - (math.sin(lat1) * math.cos(lat2) * math.cos(dlon))
-    return (math.degrees(math.atan2(x, y)) + 360) % 360
+def haversine_distance(lat1, lon1, lat2, lon2):
+    """Calcul de distance précis entre deux points GPS en mètres."""
+    R = 6371000  # Rayon de la Terre en mètres
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2)**2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2)**2
+    return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 def categoriser_ascension(dist_m, d_plus):
     if dist_m < 300 or d_plus < 15: return None
@@ -47,7 +49,7 @@ def get_gpx_data(file_content):
                 points.append({'lat': p.latitude, 'lon': p.longitude, 'alt': p.elevation})
     return points
 
-# --- INTERFACE PRINCIPALE ---
+# --- INTERFACE ---
 st.title("🚴‍♂️ Analyse Parcours & Météo")
 file = st.file_uploader("Importez votre fichier GPX", type="gpx")
 
@@ -60,11 +62,14 @@ if file:
     for i in range(len(raw_points)):
         if i > 0:
             p1, p2 = raw_points[i-1], raw_points[i]
-            d = gpxpy.geo.distance_2d(p1['lat'], p1['lon'], p2['lat'], p2['lon'])
+            # --- CORRECTION ICI : Utilisation de notre fonction Haversine ---
+            d = haversine_distance(p1['lat'], p1['lon'], p2['lat'], p2['lon'])
             d_tot += d
+            
             alt_diff = (p2['alt'] - p1['alt']) if (p2['alt'] is not None and p1['alt'] is not None) else 0
             if alt_diff > 0: d_plus += alt_diff
             else: d_moins += abs(alt_diff)
+            
             v_ms = (vitesse_plat * 1000) / 3600
             if alt_diff > 0 and d > 0: v_ms /= (1 + (alt_diff/d)*10)
             t_cumul += (d / v_ms) if v_ms > 0 else 0
