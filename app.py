@@ -100,9 +100,20 @@ from climbing import (
     COULEURS_CAT,
     LEGENDE_STRAVA,
 )
+from weather import (
+    recuperer_fuseau,
+    recuperer_meteo_batch,
+    recuperer_soleil,
+    extraire_meteo,
+    direction_vent_relative,
+    wind_chill,
+    label_wind_chill,
+    obtenir_icone_meteo,
+)
 
 # ==============================================================================
-# SECTION 1 : UTILITAIRES
+# SECTION 1 : UTILITAIRES GPS
+# ==============================================================================
 # ==============================================================================
 
 def calculer_cap(lat1, lon1, lat2, lon2):
@@ -113,45 +124,9 @@ def calculer_cap(lat1, lon1, lat2, lon2):
     return (math.degrees(math.atan2(x, y)) + 360) % 360
 
 
-def direction_vent_relative(cap, dir_vent):
-    diff = (dir_vent - cap) % 360
-    if diff <= 45 or diff >= 315:  return "⬇️ Face"
-    elif 135 <= diff <= 225:       return "⬆️ Dos"
-    elif 45 < diff < 135:          return "↘️ Côté (D)"
-    else:                          return "↙️ Côté (G)"
-
-
-def obtenir_icone_meteo(code):
-    m = {
-        0:"☀️ Clair", 1:"⛅ Éclaircies", 2:"⛅ Éclaircies", 3:"☁️ Couvert",
-        45:"🌫️ Brouillard", 48:"🌫️ Brouillard",
-        51:"🌦️ Bruine", 53:"🌦️ Bruine", 55:"🌦️ Bruine",
-        61:"🌧️ Pluie", 63:"🌧️ Pluie", 65:"🌧️ Pluie",
-        66:"🌧️ Pluie", 67:"🌧️ Pluie", 80:"🌧️ Pluie", 81:"🌧️ Pluie", 82:"🌧️ Pluie",
-        71:"❄️ Neige", 73:"❄️ Neige", 75:"❄️ Neige", 77:"❄️ Neige",
-        85:"❄️ Neige", 86:"❄️ Neige",
-        95:"⛈️ Orage", 96:"⛈️ Orage", 99:"⛈️ Orage",
-    }
-    return m.get(code, "❓ Inconnu")
-
-
-def wind_chill(temp_c, vent_kmh):
-    if temp_c > 10 or vent_kmh <= 4.8: return None
-    return round(13.12 + 0.6215*temp_c - 11.37*(vent_kmh**0.16) + 0.3965*temp_c*(vent_kmh**0.16))
-
-
-def label_wind_chill(r):
-    if r is None:   return "—"
-    if r <= -40:    return f"🟣 {r}°C (Danger extrême)"
-    if r <= -27:    return f"🔴 {r}°C (Très dangereux)"
-    if r <= -10:    return f"🟠 {r}°C (Dangereux)"
-    if r <= 0:      return f"🟡 {r}°C (Froid intense)"
-    return                 f"🔵 {r}°C (Frais)"
-
-
 def generer_html_resume(score, ascensions, resultats, dist_tot, d_plus, d_moins,
                         temps_s, heure_depart, heure_arr, vitesse, calories):
-    """Génère un résumé HTML téléchargeable (pas besoin de lib externe)."""
+    """Génère un résumé HTML téléchargeable."""
     dh = int(temps_s//3600); dm = int((temps_s%3600)//60)
 
     cols_html = ""
@@ -162,7 +137,6 @@ def generer_html_resume(score, ascensions, resultats, dist_tot, d_plus, d_moins,
             f"<td>{a['Pente moy.']}</td><td>{a.get('Temps col','—')}</td>"
             f"<td>{a.get('Arrivée sommet','—')}</td></tr>"
         )
-
     meteo_html = ""
     for cp in resultats[:10]:
         t = cp.get('temp_val')
@@ -172,7 +146,6 @@ def generer_html_resume(score, ascensions, resultats, dist_tot, d_plus, d_moins,
             f"<td>{cp.get('Pluie','—')}</td><td>{cp.get('vent_val','—')} km/h</td>"
             f"<td>{cp.get('effet','—')}</td></tr>"
         )
-
     return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>
   body{{font-family:Arial,sans-serif;padding:32px;color:#1e293b;max-width:900px;margin:auto}}
@@ -218,7 +191,7 @@ def generer_html_resume(score, ascensions, resultats, dist_tot, d_plus, d_moins,
 
 
 # ==============================================================================
-# SECTION 2 : API (cache)
+# SECTION 2 : PARSING GPX
 # ==============================================================================
 
 @st.cache_data(show_spinner=False)
@@ -229,68 +202,9 @@ def parser_gpx(data):
     except Exception as e:
         logger.error(f"GPX : {e}"); return []
 
-@st.cache_data(show_spinner=False)
-def recuperer_fuseau(lat, lon):
-    try:
-        r = requests.get(f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m&timezone=auto", timeout=10)
-        r.raise_for_status(); return r.json().get("timezone","UTC")
-    except Exception as e:
-        logger.warning(f"Fuseau : {e}"); return "UTC"
-
-@st.cache_data(ttl=1800, show_spinner=False)
-def recuperer_meteo_batch(cps):
-    if not cps: return []
-    lats = ",".join(str(c[0]) for c in cps)
-    lons = ",".join(str(c[1]) for c in cps)
-    url  = (
-        "https://api.open-meteo.com/v1/forecast"
-        f"?latitude={lats}&longitude={lons}"
-        "&hourly=temperature_2m,precipitation_probability,weathercode,"
-        "wind_speed_10m,wind_direction_10m,wind_gusts_10m&timezone=auto"
-    )
-    try:
-        r = requests.get(url, timeout=15); r.raise_for_status()
-        d = r.json(); return d if isinstance(d, list) else [d]
-    except Exception as e:
-        logger.error(f"Météo : {e}"); return None
-
-@st.cache_data(show_spinner=False)
-def recuperer_soleil(lat, lon, date_str):
-    try:
-        r = requests.get(f"https://api.sunrise-sunset.org/json?lat={lat}&lng={lon}&date={date_str}&formatted=0", timeout=10)
-        r.raise_for_status(); d = r.json()
-        if d.get("status") != "OK": return None
-        return {"lever": datetime.fromisoformat(d["results"]["sunrise"]),
-                "coucher": datetime.fromisoformat(d["results"]["sunset"])}
-    except Exception as e:
-        logger.warning(f"Soleil : {e}"); return None
-
-def extraire_meteo(api, heure):
-    vide = dict(Ciel="—",temp_val=None,Pluie="—",pluie_pct=None,
-                vent_val=None,rafales_val=None,Dir="—",dir_deg=None,effet="—",ressenti=None)
-    if not api or "hourly" not in api: return vide
-    hs = api["hourly"].get("time",[])
-    if heure not in hs: return vide
-    idx = hs.index(heure); h = api["hourly"]
-    def sg(k,d=None): v=h.get(k,[]); return v[idx] if idx<len(v) else d
-    dd    = sg("wind_direction_10m")
-    dirs  = ["N","NE","E","SE","S","SO","O","NO"]
-    dl    = dirs[round(dd/45)%8] if dd is not None else "—"
-    temp  = sg("temperature_2m"); vent = sg("wind_speed_10m")
-    pp    = sg("precipitation_probability")
-    try:    pct = int(pp)
-    except: pct = None
-    return {
-        "Ciel": obtenir_icone_meteo(sg("weathercode",0)),
-        "temp_val": temp, "Pluie": f"{pct}%" if pct is not None else "—",
-        "pluie_pct": pct, "vent_val": vent, "rafales_val": sg("wind_gusts_10m"),
-        "Dir": dl, "dir_deg": dd, "effet": "—",
-        "ressenti": wind_chill(temp,vent) if (temp is not None and vent is not None) else None,
-    }
-
 
 # ==============================================================================
-# SECTION 5 : SCORE GLOBAL
+# SECTION 3 : SCORE GLOBAL
 # ==============================================================================
 
 def calculer_score(resultats, ascensions, d_plus, vitesse, ref_val, mode, poids):
