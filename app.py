@@ -334,33 +334,62 @@ def categoriser_uci(distance_m, d_plus):
 # SECTION 3 : DÉTECTION ASCENSIONS
 # ==============================================================================
 
-def lisser(alts, f=5):
+def lisser(alts, f=7):
+    """Lissage par moyenne mobile — fenêtre légèrement plus large pour gommer le bruit GPS."""
     demi, n, r = f//2, len(alts), []
     for i in range(n):
         s, e = max(0,i-demi), min(n,i+demi+1)
         r.append(sum(alts[s:e])/(e-s))
     return r
 
+
 def detecter_segments(dists, alts):
+    """
+    Détecte les segments montants.
+    Fin de montée : descente de plus de MARGE_FIN depuis le sommet.
+    MARGE_FIN adaptive : 5% du D+ courant, min 30m, max 200m.
+    Permet de ne pas couper un col alpin à chaque replat.
+    """
     segs, n = [], len(alts)
     en_m = False; ci = si = 0
+    alt_base = alts[0]
+
     for i in range(1, n):
         a = alts[i]
         if not en_m:
-            if a < alts[ci]: ci = i
-            elif a >= alts[ci] + 10: en_m = True; si = i
+            if a < alts[ci]: ci = i; alt_base = a
+            elif a >= alts[ci] + 15:
+                en_m = True; si = i
         else:
             if a > alts[si]: si = i
-            elif a <= alts[si] - 30: segs.append((ci, si)); en_m = False; ci = si = i
-    if en_m and si > ci: segs.append((ci, si))
+            else:
+                # Marge adaptive : 5% du D+ courant
+                d_plus_courant = alts[si] - alts[ci]
+                marge = max(30, min(200, d_plus_courant * 0.05))
+                if a <= alts[si] - marge:
+                    segs.append((ci, si))
+                    en_m = False; ci = i; si = i
+
+    if en_m and si > ci:
+        segs.append((ci, si))
     return segs
 
+
 def fusionner(segs, alts):
+    """
+    Fusionne les segments séparés par une descente intermédiaire.
+    Tolérance adaptive : 8% du D+ total des deux segments, min 25m, max 300m.
+    Permet de réunir les deux versants d'un col avec replat.
+    """
     if not segs: return []
     f = [segs[0]]
     for d, s in segs[1:]:
         pd_, ps_ = f[-1]
-        if alts[ps_] - alts[d] <= 25:
+        descente_inter = alts[ps_] - alts[d]
+        # D+ combiné des deux segments
+        d_plus_total = (alts[ps_] - alts[pd_]) + (alts[s] - alts[d])
+        tolerance = max(25, min(300, d_plus_total * 0.08))
+        if descente_inter <= tolerance:
             f[-1] = (pd_, s if alts[s] >= alts[ps_] else ps_)
         else:
             f.append((d, s))
