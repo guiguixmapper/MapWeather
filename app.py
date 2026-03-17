@@ -90,7 +90,7 @@ CSS = """
 
 from climbing import (
     detecter_ascensions,
-    categoriser,
+    categoriser_uci,
     estimer_watts,
     estimer_fc,
     estimer_temps_col,
@@ -98,7 +98,7 @@ from climbing import (
     get_zone,
     zones_actives,
     COULEURS_CAT,
-    LEGENDE_STRAVA,
+    LEGENDE_UCI,
 )
 from weather import (
     recuperer_fuseau,
@@ -868,7 +868,7 @@ def main():
 
     # ── ASCENSIONS ───────────────────────────────────────────────────────────
     with tab_cols:
-        st.caption(LEGENDE_STRAVA)
+        st.caption(LEGENDE_UCI)
         if ascensions:
             for a in ascensions:
                 w     = estimer_watts(a["_pente_moy"], vitesse, poids)
@@ -886,7 +886,7 @@ def main():
                                else "🔵 Endurance")
             cols_aff = ["Catégorie","Départ (km)","Sommet (km)","Longueur",
                         "Dénivelé","Pente moy.","Pente max","Alt. sommet",
-                        "Score","Temps col","Arrivée sommet","Puissance","Effort val","Zone","Effort"]
+                        "Score UCI","Temps col","Arrivée sommet","Puissance","Effort val","Zone","Effort"]
             st.dataframe(pd.DataFrame(ascensions)[cols_aff],
                 use_container_width=True, hide_index=True,
                 column_config={
