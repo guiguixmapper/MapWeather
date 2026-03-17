@@ -171,25 +171,33 @@ def label_wind_chill(r):
     return                 f"🔵 {r}°C (Frais)"
 
 
-def estimer_watts(pente_pct, vitesse_kmh, poids_kg=75):
-    g  = 9.81
-    vm = vitesse_kmh / 3.6
-    pr = math.atan(pente_pct / 100)
+def estimer_watts(pente_pct, vitesse_plat_kmh, poids_kg=75):
+    """
+    Puissance estimée en montée à la vitesse réelle (pas la vitesse plat).
+    En montée on ralentit : chaque % de pente réduit la vitesse de ~10%.
+    """
+    g              = 9.81
+    facteur        = 1 + (pente_pct * 0.10)
+    vitesse_montee = max(5.0, vitesse_plat_kmh / facteur)   # km/h réels en montée
+    vm             = vitesse_montee / 3.6
+    pr             = math.atan(pente_pct / 100)
     return max(0, int(poids_kg * g * math.sin(pr) * vm + poids_kg * g * 0.004 * vm))
 
 
 def estimer_fc(watts, ftp, fc_max, fc_repos=50):
     """
     Estimation FC à partir des watts.
-    Principe : au FTP, on est à ~90% de la FC max (zone seuil).
-    On interpole linéairement entre FC repos (0W) et FC max (FTP / 0.9).
-    Le résultat est strictement borné entre fc_repos et fc_max.
+    Calage : FTP = 85% FC max (zone seuil typique).
+    Interpolation linéaire entre FC repos (0W) et FC max.
+    Résultat strictement borné entre fc_repos et fc_max - 5 bpm
+    (on n'atteint jamais la FC max sur une montée soutenue).
     """
     if ftp <= 0 or fc_max <= 0: return None
-    watts_fc_max = ftp / 0.90
-    ratio = watts / watts_fc_max
-    fc = fc_repos + ratio * (fc_max - fc_repos)
-    return int(min(fc_max, max(fc_repos, fc)))
+    # Watts correspondant à 100% FC max
+    watts_fc_max = ftp / 0.85
+    ratio        = min(watts / watts_fc_max, 0.97)   # plafonné à 97% FC max
+    fc           = fc_repos + ratio * (fc_max - fc_repos)
+    return int(min(fc_max - 3, max(fc_repos, fc)))
 
 
 def calculer_calories(poids_cycliste_kg, duree_sec, dist_m, d_plus_m, vitesse_kmh):
@@ -612,10 +620,15 @@ def creer_figure_profil(df, ascensions, vitesse, ref_val, mode, poids, idx_survo
 
     fig.update_layout(
         height=360, margin=dict(l=50,r=20,t=30,b=40),
-        xaxis=dict(title="Distance (km)", showgrid=True, gridcolor="#f1f5f9"),
-        yaxis=dict(title="Altitude (m)",  showgrid=True, gridcolor="#f1f5f9"),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        xaxis=dict(title="Distance (km)", showgrid=True, gridcolor="#e2e8f0",
+                   title_font=dict(color="#1e293b"), tickfont=dict(color="#1e293b")),
+        yaxis=dict(title="Altitude (m)",  showgrid=True, gridcolor="#e2e8f0",
+                   title_font=dict(color="#1e293b"), tickfont=dict(color="#1e293b")),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
+                    font=dict(color="#1e293b"), bgcolor="rgba(255,255,255,0.9)",
+                    bordercolor="#e2e8f0", borderwidth=1),
         hovermode="x unified", plot_bgcolor="white", paper_bgcolor="white",
+        font=dict(color="#1e293b"),
     )
     return fig
 
