@@ -412,11 +412,16 @@ def detecter_ascensions(df):
     sommets_fus = fusionner_sommets(sommets_ok)
 
     # ── 4. Début UCI = min entre deux sommets consécutifs ─────────────────
+    # Pour le premier sommet, on cherche le min dans une fenêtre de 40km
+    # avant le sommet (pas depuis le début du parcours qui diluerait la pente)
     out = []
     for k, sommet_idx in enumerate(sommets_fus):
         if k == 0:
-            milieu    = sommet_idx // 2
-            debut_idx = min(range(milieu, sommet_idx), key=lambda i: alts[i])
+            # Fenêtre de recherche = 40km avant le sommet max
+            km_sommet   = dists[sommet_idx]
+            km_min_fen  = max(dists[0], km_sommet - 40.0)
+            idx_fen_deb = min(range(len(dists)), key=lambda i: abs(dists[i] - km_min_fen))
+            debut_idx   = min(range(idx_fen_deb, sommet_idx), key=lambda i: alts[i])
         else:
             prev      = sommets_fus[k - 1]
             debut_idx = min(range(prev, sommet_idx), key=lambda i: alts[i])
