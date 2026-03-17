@@ -449,29 +449,86 @@ def extraire_meteo(api, heure):
 # ==============================================================================
 
 def calculer_score(resultats, ascensions, d_plus, vitesse, ref_val, mode, poids):
+    """
+    Score global /10 = Météo (4pts) + Cols (3pts) + Effort (3pts).
+
+    Nouveautés :
+    - Vent : pénalité basée sur le vent EFFECTIF (vent de face = plein malus,
+      vent de dos = bonus, vent de côté = demi-malus)
+    - Dénivelé : seuils resserrés + malus cumulatif par col HC/1ère
+    """
     valides = [cp for cp in resultats if cp.get("temp_val") is not None]
+
+    # ── Score météo (4 pts) ───────────────────────────────────────────────
     sm = 4.0
     if valides:
-        tm = sum(cp["temp_val"] for cp in valides)/len(valides)
-        vm = sum(cp.get("vent_val") or 0 for cp in valides)/len(valides)
-        pm = sum(cp.get("pluie_pct") or 0 for cp in valides)/len(valides)
+        # Température
+        tm = sum(cp["temp_val"] for cp in valides) / len(valides)
         sm -= (0 if 15<=tm<=22 else 0.5 if 10<=tm<=28 else 1.5 if 5<=tm<=32 else 2.5)
-        sm -= (1.5 if vm>40 else 1.0 if vm>25 else 0.5 if vm>15 else 0)
-        sm -= (1.5 if pm>70 else 1.0 if pm>40 else 0.3 if pm>20 else 0)
-    else: sm = 2.0
-    sc = 3.0 if d_plus<500 else 2.0 if d_plus<1500 else 1.0 if d_plus<3000 else 0.5
+
+        # Vent effectif : on pondère selon l'effet ressenti
+        POIDS_EFFET = {"⬇️ Face": 1.5, "↘️ Côté (D)": 0.7, "↙️ Côté (G)": 0.7,
+                       "⬆️ Dos": -0.3, "—": 0.5}
+        vent_effectif_list = []
+        for cp in valides:
+            v     = cp.get("vent_val") or 0
+            effet = cp.get("effet", "—")
+            coef  = POIDS_EFFET.get(effet, 0.5)
+            vent_effectif_list.append(v * coef)
+        ve_moy = sum(vent_effectif_list) / len(vent_effectif_list)
+
+        # Malus vent effectif (plus sévère qu'avant)
+        sm -= (2.0 if ve_moy > 45 else 1.5 if ve_moy > 30
+               else 1.0 if ve_moy > 18 else 0.5 if ve_moy > 10 else 0)
+
+        # Pluie
+        pm = sum(cp.get("pluie_pct") or 0 for cp in valides) / len(valides)
+        sm -= (1.5 if pm > 70 else 1.0 if pm > 40 else 0.3 if pm > 20 else 0)
+    else:
+        sm = 2.0
+
+    # ── Score cols (3 pts) ────────────────────────────────────────────────
+    # Seuils resserrés : 200m suffit déjà à entamer le score
+    sc = (3.0 if d_plus < 200
+          else 2.5 if d_plus < 500
+          else 2.0 if d_plus < 1000
+          else 1.2 if d_plus < 2000
+          else 0.6 if d_plus < 3500
+          else 0.2)
+
+    # Malus cumulatif par catégorie de col (plus sévère)
     cats = [a["Catégorie"] for a in ascensions]
-    sc = max(0, sc + cats.count("🔴 HC")*-0.5 + cats.count("🟠 1ère Cat.")*-0.3 + cats.count("🟡 2ème Cat.")*-0.1)
+    malus_cols = (
+        cats.count("🔴 HC")        * 1.0 +
+        cats.count("🟠 1ère Cat.") * 0.6 +
+        cats.count("🟡 2ème Cat.") * 0.3 +
+        cats.count("🟢 3ème Cat.") * 0.1
+    )
+    sc = max(0.0, sc - malus_cols)
+
+    # ── Score effort (3 pts) ──────────────────────────────────────────────
     se = 3.0
     if ascensions and ref_val > 0:
-        wl = [estimer_watts(a["_pente_moy"], vitesse, poids) for a in ascensions]
-        wm = sum(wl)/len(wl)
-        pct = wm/ref_val if mode == "⚡ Puissance" else 0.85  # FC : effort moyen estimé
-        se = (0.5 if pct>1.10 else 1.0 if pct>0.95 else 1.5 if pct>0.80 else 2.5 if pct>0.60 else 3.0)
-    total = round(min(10, max(0, sm+sc+se)), 1)
-    lbl = ("🔴 Très difficile" if total<4 else "🟠 Difficile" if total<6
-           else "🟡 Engagée" if total<7.5 else "🟢 Bonne sortie" if total<9 else "⭐ Idéale")
-    return {"total":total,"label":lbl,"score_meteo":round(max(0,sm),1),"score_cols":round(sc,1),"score_effort":round(se,1)}
+        wl  = [estimer_watts(a["_pente_moy"], vitesse, poids) for a in ascensions]
+        wm  = sum(wl) / len(wl)
+        pct = wm / ref_val if mode == "⚡ Puissance" else 0.85
+        se  = (0.3 if pct > 1.15 else 0.8 if pct > 1.05
+               else 1.3 if pct > 0.90 else 2.0 if pct > 0.70
+               else 2.5 if pct > 0.50 else 3.0)
+
+    total = round(min(10.0, max(0.0, sm + sc + se)), 1)
+    lbl   = ("🔴 Très difficile" if total < 4   else
+             "🟠 Difficile"      if total < 6   else
+             "🟡 Engagée"        if total < 7.5 else
+             "🟢 Bonne sortie"   if total < 9   else
+             "⭐ Idéale")
+    return {
+        "total":        total,
+        "label":        lbl,
+        "score_meteo":  round(max(0.0, sm), 1),
+        "score_cols":   round(sc, 1),
+        "score_effort": round(se, 1),
+    }
 
 
 # ==============================================================================
