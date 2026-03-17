@@ -345,16 +345,9 @@ def lisser(alts, f=11):
 
 def detecter_ascensions(df):
     """
-    Détection des ascensions par prominence topographique.
-
-    Principe :
-    1. On lisse le profil pour éliminer le bruit GPS
-    2. On trouve tous les maxima locaux (sommets candidats)
-    3. Pour chaque sommet, on calcule sa "prominence" = hauteur au-dessus
-       du col de selle le plus bas qui le sépare du sommet plus haut le plus proche
-    4. On ne garde que les sommets avec prominence >= PROMINENCE_MIN
-    5. Pour chaque sommet retenu, le début UCI = minimum local entre
-       ce sommet et le précédent sommet retenu (ou le début du parcours)
+    Détection par prominence topographique.
+    Correction clé : début UCI = minimum entre deux sommets CONSÉCUTIFS retenus,
+    pas depuis le début du parcours (évite de diluer la pente sur les premières km plats).
     """
     if df.empty or len(df) < 10: return []
 
@@ -363,75 +356,48 @@ def detecter_ascensions(df):
     n        = len(alts_raw)
     alts     = lisser(alts_raw)
 
-    PROMINENCE_MIN = 150   # m — seuil pour qu'un sommet soit "réel"
-                           # Le Ventoux : ~1500m prominence / Col de Vars : ~400m / petite bosse : <100m
+    PROMINENCE_MIN = 80    # assez bas pour 4ème cat, filtrage par score UCI ensuite
 
-    # ── 1. Trouver tous les maxima locaux ────────────────────────────────
-    # Un maximum local est plus haut que ses voisins sur une fenêtre de 1km
-    fenetre_pts = max(5, int(1.0 / ((dists[-1] - dists[0]) / n)))
+    # ── 1. Maxima locaux (fenêtre ~1.5km) ────────────────────────────────
+    ecart  = (dists[-1] - dists[0]) / n if n > 1 else 0.1
+    fenetre = max(5, int(1.5 / ecart))
 
     maxima = []
-    for i in range(fenetre_pts, n - fenetre_pts):
-        if alts[i] == max(alts[i-fenetre_pts:i+fenetre_pts+1]):
-            # Éviter les doublons trop proches (< 2km)
-            if not maxima or dists[i] - dists[maxima[-1]] > 2.0:
+    for i in range(fenetre, n - fenetre):
+        if alts[i] == max(alts[max(0,i-fenetre):i+fenetre+1]):
+            if not maxima or dists[i] - dists[maxima[-1]] > 1.5:
                 maxima.append(i)
+    if not maxima: return []
 
-    if not maxima:
-        return []
-
-    # ── 2. Calculer la prominence de chaque sommet ───────────────────────
+    # ── 2. Prominence ────────────────────────────────────────────────────
     def min_entre(i, j):
-        """Minimum d'altitude entre les indices i et j."""
         lo, hi = min(i,j), max(i,j)
         return min(alts[lo:hi+1])
 
-    prominences = []
-    for idx, s in enumerate(maxima):
-        alt_s = alts[s]
-        # Col de selle = minimum entre ce sommet et le sommet le plus haut parmi les voisins
-        voisins_plus_hauts = [m for m in maxima if m != s and alts[m] >= alt_s * 0.7]
-        if not voisins_plus_hauts:
-            # Sommet unique ou plus haut de tous → prominence = hauteur depuis le début
-            col_selle = min(alts[0:s+1]) if s > 0 else alts[0]
-        else:
-            # Col de selle = max des minima vers chaque voisin plus haut
-            cols = [min_entre(s, v) for v in voisins_plus_hauts]
-            col_selle = max(cols)
-        prominence = alt_s - col_selle
-        prominences.append(prominence)
+    sommets_ok = []
+    for s in maxima:
+        alt_s   = alts[s]
+        voisins = [m for m in maxima if m != s and alts[m] >= alt_s * 0.65]
+        col     = max((min_entre(s,v) for v in voisins),
+                      default=min(alts[max(0,s-fenetre*3):s+1]))
+        if alt_s - col >= PROMINENCE_MIN:
+            sommets_ok.append(s)
+    if not sommets_ok: return []
 
-    # ── 3. Filtrer les sommets significatifs ─────────────────────────────
-    sommets_retenus = [
-        maxima[i] for i, p in enumerate(prominences)
-        if p >= PROMINENCE_MIN
-    ]
-
-    if not sommets_retenus:
-        return []
-
-    # ── 4. Pour chaque sommet, trouver le début UCI ───────────────────────
-    # Le début = minimum d'altitude entre ce sommet et le sommet précédent retenu
-    # (ou le début du parcours pour le premier)
+    # ── 3. Début UCI = min entre deux sommets consécutifs ─────────────────
     out = []
-    for k, sommet_idx in enumerate(sommets_retenus):
-        # Fenêtre de recherche du début
+    for k, sommet_idx in enumerate(sommets_ok):
         if k == 0:
-            debut_fenetre = 0
+            # Premier sommet : début = min dans la 2ème moitié avant lui
+            milieu    = sommet_idx // 2
+            debut_idx = min(range(milieu, sommet_idx), key=lambda i: alts[i])
         else:
-            prev = sommets_retenus[k-1]
-            debut_fenetre = prev  # on part du sommet précédent
-
-        # Minimum dans la fenêtre [debut_fenetre, sommet_idx] → point de départ UCI
-        debut_idx = min(
-            range(debut_fenetre, sommet_idx),
-            key=lambda i: alts[i]
-        )
+            prev      = sommets_ok[k - 1]
+            debut_idx = min(range(prev, sommet_idx), key=lambda i: alts[i])
 
         dk = dists[sommet_idx] - dists[debut_idx]
         dp = alts_raw[sommet_idx] - alts_raw[debut_idx]
-
-        if dk <= 0 or dp < 50: continue
+        if dk <= 0 or dp < 30: continue
 
         cat, score = categoriser_uci(dk * 1000, dp)
         if cat is None: continue
