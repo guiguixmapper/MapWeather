@@ -324,6 +324,7 @@ SEUILS_STRAVA = {
     "🟡 2ème Cat.": 32,
     "🟢 3ème Cat.": 16,
     "🔵 4ème Cat.":  8,
+    "⚪ Non classée": 2,
 }
 
 def categoriser_uci(distance_m, d_plus):
@@ -365,8 +366,8 @@ def detecter_ascensions(df):
     alts     = lisser(alts_raw)
     n        = len(alts)
 
-    SEUIL_DEBUT = 10    # m de gain pour démarrer une montée
-    SEUIL_FIN   = 40    # m de descente depuis le sommet pour clore la montée
+    SEUIL_DEBUT = 5     # m de gain pour démarrer une montée
+    SEUIL_FIN   = 20    # m de descente depuis le sommet pour clore la montée
 
     ascensions = []
     en_montee  = False
@@ -597,6 +598,7 @@ def calculer_score(resultats, ascensions, d_plus, vitesse, ref_val, mode, poids)
 COULEURS_CAT = {
     "🔴 HC":"#ef4444","🟠 1ère Cat.":"#f97316",
     "🟡 2ème Cat.":"#eab308","🟢 3ème Cat.":"#22c55e","🔵 4ème Cat.":"#3b82f6",
+    "⚪ Non classée":"#94a3b8",
 }
 
 def creer_figure_profil(df, ascensions, vitesse, ref_val, mode, poids, idx_survol=None):
@@ -1174,7 +1176,7 @@ def main():
     # ── ASCENSIONS ───────────────────────────────────────────────────────────
     with tab_cols:
         st.caption("**Catégorisation Strava** — Score = (D+ × pente moy.) / 100 · "
-                   "🔵 4ème ≥8 · 🟢 3ème ≥16 · 🟡 2ème ≥32 · 🟠 1ère ≥64 · 🔴 HC ≥80")
+                   "⚪ Non classée ≥2 · 🔵 4ème ≥8 · 🟢 3ème ≥16 · 🟡 2ème ≥32 · 🟠 1ère ≥64 · 🔴 HC ≥80")
         if ascensions:
             for a in ascensions:
                 w     = estimer_watts(a["_pente_moy"], vitesse, poids)
