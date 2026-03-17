@@ -342,8 +342,8 @@ def categoriser_uci(distance_m, d_plus):
 # SECTION 3 : DÉTECTION ASCENSIONS
 # ==============================================================================
 
-def lisser(alts, f=15):
-    """Lissage par moyenne mobile — f=15 pour bien effacer le bruit GPS."""
+def lisser(alts, f=7):
+    """Lissage modéré — efface le bruit GPS sans écraser les vraies montées."""
     demi, n, r = f//2, len(alts), []
     for i in range(n):
         s, e = max(0, i-demi), min(n, i+demi+1)
@@ -411,7 +411,7 @@ def detecter_ascensions(df):
                 sommet_idx = i
             else:
                 d_plus_courant = alts[sommet_idx] - alts[creux_idx]
-                seuil_fin = max(25, min(150, d_plus_courant * 0.12))
+                seuil_fin = max(20, min(100, d_plus_courant * 0.15))
                 if a <= alts[sommet_idx] - seuil_fin:
                     enregistrer(creux_idx, sommet_idx)
                     en_montee = False
@@ -654,7 +654,7 @@ def creer_figure_profil(df, ascensions, vitesse, ref_val, mode, poids, idx_survo
         )
 
     fig.update_layout(
-        height=360, margin=dict(l=50,r=20,t=30,b=40),
+        height=500, margin=dict(l=50,r=20,t=30,b=40),
         xaxis=dict(title="Distance (km)", showgrid=True, gridcolor="#e2e8f0",
                    title_font=dict(color="#1e293b"), tickfont=dict(color="#1e293b")),
         yaxis=dict(title="Altitude (m)",  showgrid=True, gridcolor="#e2e8f0",
