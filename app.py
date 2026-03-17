@@ -764,26 +764,55 @@ def main():
     dh = int(temps_s//3600); dm = int((temps_s%3600)//60)
     score = calculer_score(resultats, ascensions, d_plus, vitesse, ref_val, mode, poids)
     st.markdown(f"""
-    <div class="score-card">
-      <div>
-        <div class="score-note">{score['total']}<span style="font-size:1.4rem">/10</span></div>
-        <div class="score-label">{score['label']}</div>
-        <div class="score-sub">Score global de la sortie</div>
+    <div style="background:linear-gradient(135deg,#1e3a5f,#1e40af);border-radius:12px;
+                padding:16px 24px;color:white;margin:12px 0;
+                display:flex;align-items:center;gap:0;flex-wrap:wrap">
+
+      <!-- Score -->
+      <div style="min-width:140px;padding-right:20px;border-right:1px solid rgba(255,255,255,0.2)">
+        <div style="font-size:2.8rem;font-weight:900;line-height:1">{score['total']}<span style="font-size:1.2rem">/10</span></div>
+        <div style="font-size:.95rem;font-weight:600;margin-top:2px">{score['label']}</div>
+        <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
+          <span style="background:rgba(255,255,255,.15);border-radius:20px;padding:3px 10px;font-size:.75rem">🌤️ {score['score_meteo']}/4</span>
+          <span style="background:rgba(255,255,255,.15);border-radius:20px;padding:3px 10px;font-size:.75rem">⛰️ {score['score_cols']}/3</span>
+          <span style="background:rgba(255,255,255,.15);border-radius:20px;padding:3px 10px;font-size:.75rem">⚡ {score['score_effort']}/3</span>
+        </div>
       </div>
-      <div class="score-pills">
-        <div class="pill">🌤️ Météo &nbsp;<b>{score['score_meteo']}/4</b></div>
-        <div class="pill">⛰️ Cols &nbsp;<b>{score['score_cols']}/3</b></div>
-        <div class="pill">⚡ Effort &nbsp;<b>{score['score_effort']}/3</b></div>
+
+      <!-- Métriques -->
+      <div style="display:flex;gap:0;flex:1;flex-wrap:wrap;padding-left:8px">
+        <div style="flex:1;min-width:90px;text-align:center;padding:6px 12px;border-right:1px solid rgba(255,255,255,0.15)">
+          <div style="font-size:1.9rem;font-weight:800;line-height:1.1">{round(dist_tot/1000,1)}</div>
+          <div style="font-size:.95rem;font-weight:500;opacity:.7">km</div>
+          <div style="font-size:.7rem;opacity:.55;margin-top:1px">📏 Distance</div>
+        </div>
+        <div style="flex:1;min-width:90px;text-align:center;padding:6px 12px;border-right:1px solid rgba(255,255,255,0.15)">
+          <div style="font-size:1.9rem;font-weight:800;line-height:1.1">{int(d_plus)}</div>
+          <div style="font-size:.95rem;font-weight:500;opacity:.7">m</div>
+          <div style="font-size:.7rem;opacity:.55;margin-top:1px">⬆️ D+</div>
+        </div>
+        <div style="flex:1;min-width:90px;text-align:center;padding:6px 12px;border-right:1px solid rgba(255,255,255,0.15)">
+          <div style="font-size:1.9rem;font-weight:800;line-height:1.1">{int(d_moins)}</div>
+          <div style="font-size:.95rem;font-weight:500;opacity:.7">m</div>
+          <div style="font-size:.7rem;opacity:.55;margin-top:1px">⬇️ D−</div>
+        </div>
+        <div style="flex:1;min-width:90px;text-align:center;padding:6px 12px;border-right:1px solid rgba(255,255,255,0.15)">
+          <div style="font-size:1.9rem;font-weight:800;line-height:1.1">{dh}h{dm:02d}</div>
+          <div style="font-size:.95rem;font-weight:500;opacity:.7">min</div>
+          <div style="font-size:.7rem;opacity:.55;margin-top:1px">⏱️ Durée</div>
+        </div>
+        <div style="flex:1;min-width:90px;text-align:center;padding:6px 12px;border-right:1px solid rgba(255,255,255,0.15)">
+          <div style="font-size:1.9rem;font-weight:800;line-height:1.1">{heure_arr.strftime('%H:%M')}</div>
+          <div style="font-size:.95rem;font-weight:500;opacity:.7">&nbsp;</div>
+          <div style="font-size:.7rem;opacity:.55;margin-top:1px">🏁 Arrivée</div>
+        </div>
+        <div style="flex:1;min-width:90px;text-align:center;padding:6px 12px">
+          <div style="font-size:1.9rem;font-weight:800;line-height:1.1">{len(ascensions)}</div>
+          <div style="font-size:.95rem;font-weight:500;opacity:.7">cols</div>
+          <div style="font-size:.7rem;opacity:.55;margin-top:1px">🏔️ Détectés</div>
+        </div>
       </div>
-      <div style="width:1px;background:rgba(255,255,255,0.2);align-self:stretch;margin:0 4px"></div>
-      <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center">
-        <div style="text-align:center"><div style="font-size:1.6rem;font-weight:700">{round(dist_tot/1000,1)} km</div><div style="font-size:.8rem;opacity:.75">📏 Distance</div></div>
-        <div style="text-align:center"><div style="font-size:1.6rem;font-weight:700">{int(d_plus)} m</div><div style="font-size:.8rem;opacity:.75">⬆️ Dénivelé +</div></div>
-        <div style="text-align:center"><div style="font-size:1.6rem;font-weight:700">{int(d_moins)} m</div><div style="font-size:.8rem;opacity:.75">⬇️ Dénivelé −</div></div>
-        <div style="text-align:center"><div style="font-size:1.6rem;font-weight:700">{dh}h{dm:02d}m</div><div style="font-size:.8rem;opacity:.75">⏱️ Durée</div></div>
-        <div style="text-align:center"><div style="font-size:1.6rem;font-weight:700">{heure_arr.strftime('%H:%M')}</div><div style="font-size:.8rem;opacity:.75">🏁 Arrivée</div></div>
-        <div style="text-align:center"><div style="font-size:1.6rem;font-weight:700">{len(ascensions)}</div><div style="font-size:.8rem;opacity:.75">🏔️ Cols</div></div>
-      </div>
+
     </div>""", unsafe_allow_html=True)
 
     # ── ONGLETS ───────────────────────────────────────────────────────────────
