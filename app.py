@@ -554,12 +554,12 @@ def creer_figure_meteo(resultats):
 # SECTION 7 : CARTE
 # ==============================================================================
 
-def creer_carte(points_gpx, resultats, tiles="CartoDB positron"):
-    carte = folium.Map(
-        location=[points_gpx[0].latitude, points_gpx[0].longitude],
-        zoom_start=11, tiles=tiles,
-        scrollWheelZoom=True,
-    )
+def creer_carte(points_gpx, resultats, tiles="CartoDB positron", attr=None):
+    kwargs = dict(location=[points_gpx[0].latitude, points_gpx[0].longitude],
+                  zoom_start=11, tiles=tiles, scrollWheelZoom=True)
+    if attr:
+        kwargs["attr"] = attr
+    carte = folium.Map(**kwargs)
     folium.PolyLine([[p.latitude,p.longitude] for p in points_gpx],
                     color="#2563eb", weight=5, opacity=0.9).add_to(carte)
     folium.Marker([points_gpx[0].latitude, points_gpx[0].longitude],
@@ -813,11 +813,19 @@ def main():
                 st.warning(f"⚠️ Arrivée après le coucher ({cs} UTC) — prévoyez un éclairage.")
 
         FONDS_CARTE = {
-            "🗺️ CartoDB Positron (épuré)":     "CartoDB positron",
-            "🌑 CartoDB Dark Matter (sombre)":  "CartoDB dark_matter",
-            "🌍 OpenStreetMap (classique)":     "OpenStreetMap",
-            "🏔️ Stamen Terrain (relief)":       "Stamen Terrain",
-            "⬛ Stamen Toner (N&B)":            "Stamen Toner",
+            "🗺️ CartoDB Positron (épuré)":    ("CartoDB positron", None, None),
+            "🌑 CartoDB Dark Matter (sombre)": ("CartoDB dark_matter", None, None),
+            "🌍 OpenStreetMap (classique)":    ("OpenStreetMap", None, None),
+            "🏔️ Stamen Terrain (relief)": (
+                "https://stamen-tiles.a.ssl.fastly.net/terrain/{z}/{x}/{y}.jpg",
+                "Map tiles by Stamen Design, CC BY 3.0 — Map data © OpenStreetMap contributors",
+                None,
+            ),
+            "⬛ Stamen Toner (N&B)": (
+                "https://stamen-tiles.a.ssl.fastly.net/toner/{z}/{x}/{y}.png",
+                "Map tiles by Stamen Design, CC BY 3.0 — Map data © OpenStreetMap contributors",
+                None,
+            ),
         }
         fond_choisi = st.selectbox(
             "🖼️ Fond de carte",
@@ -825,9 +833,9 @@ def main():
             index=0,
             help="Change le style de la carte."
         )
-        tiles = FONDS_CARTE[fond_choisi]
+        tiles, attr, _ = FONDS_CARTE[fond_choisi]
 
-        carte = creer_carte(points_gpx, resultats, tiles)
+        carte = creer_carte(points_gpx, resultats, tiles, attr)
         st_folium(carte, width="100%", height=700, returned_objects=[])
 
     # ── PROFIL ───────────────────────────────────────────────────────────────
