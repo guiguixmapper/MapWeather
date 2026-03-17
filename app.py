@@ -760,7 +760,8 @@ def main():
             if m["dir_deg"] is not None: m["effet"] = direction_vent_relative(cp["Cap"],m["dir_deg"])
             cp.update(m); resultats.append(cp)
 
-    # ── SCORE GLOBAL ──────────────────────────────────────────────────────────
+    # ── SCORE GLOBAL + MÉTRIQUES ─────────────────────────────────────────────
+    dh = int(temps_s//3600); dm = int((temps_s%3600)//60)
     score = calculer_score(resultats, ascensions, d_plus, vitesse, ref_val, mode, poids)
     st.markdown(f"""
     <div class="score-card">
@@ -774,6 +775,15 @@ def main():
         <div class="pill">⛰️ Cols &nbsp;<b>{score['score_cols']}/3</b></div>
         <div class="pill">⚡ Effort &nbsp;<b>{score['score_effort']}/3</b></div>
       </div>
+      <div style="width:1px;background:rgba(255,255,255,0.2);align-self:stretch;margin:0 4px"></div>
+      <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center">
+        <div style="text-align:center"><div style="font-size:1.2rem;font-weight:700">{round(dist_tot/1000,1)} km</div><div style="font-size:.7rem;opacity:.7">📏 Distance</div></div>
+        <div style="text-align:center"><div style="font-size:1.2rem;font-weight:700">{int(d_plus)} m</div><div style="font-size:.7rem;opacity:.7">⬆️ Dénivelé +</div></div>
+        <div style="text-align:center"><div style="font-size:1.2rem;font-weight:700">{int(d_moins)} m</div><div style="font-size:.7rem;opacity:.7">⬇️ Dénivelé −</div></div>
+        <div style="text-align:center"><div style="font-size:1.2rem;font-weight:700">{dh}h{dm:02d}m</div><div style="font-size:.7rem;opacity:.7">⏱️ Durée</div></div>
+        <div style="text-align:center"><div style="font-size:1.2rem;font-weight:700">{heure_arr.strftime('%H:%M')}</div><div style="font-size:.7rem;opacity:.7">🏁 Arrivée</div></div>
+        <div style="text-align:center"><div style="font-size:1.2rem;font-weight:700">{len(ascensions)}</div><div style="font-size:.7rem;opacity:.7">🏔️ Cols</div></div>
+      </div>
     </div>""", unsafe_allow_html=True)
 
     # ── ONGLETS ───────────────────────────────────────────────────────────────
@@ -783,16 +793,6 @@ def main():
 
     # ── CARTE ────────────────────────────────────────────────────────────────
     with tab_carte:
-        dh = int(temps_s//3600); dm = int((temps_s%3600)//60)
-        st.markdown(f"""
-        <div class="metric-grid">
-          <div class="metric-card"><div class="val">{round(dist_tot/1000,1)} km</div><div class="lbl">📏 Distance</div></div>
-          <div class="metric-card"><div class="val">{int(d_plus)} m</div><div class="lbl">⬆️ Dénivelé +</div></div>
-          <div class="metric-card"><div class="val">{int(d_moins)} m</div><div class="lbl">⬇️ Dénivelé −</div></div>
-          <div class="metric-card"><div class="val">{dh}h{dm:02d}m</div><div class="lbl">⏱️ Durée estimée</div></div>
-          <div class="metric-card"><div class="val">{heure_arr.strftime('%H:%M')}</div><div class="lbl">🏁 Arrivée</div></div>
-          <div class="metric-card"><div class="val">{len(ascensions)}</div><div class="lbl">🏔️ Cols détectés</div></div>
-        </div>""", unsafe_allow_html=True)
 
         if infos_soleil:
             ls = infos_soleil["lever"].strftime("%H:%M")
