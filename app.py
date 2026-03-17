@@ -24,6 +24,53 @@ logger = logging.getLogger(__name__)
 # SECTION 1 : FONCTIONS UTILITAIRES
 # ==============================================================================
 
+def wind_chill(temp_c: float, vent_kmh: float) -> int | None:
+    """
+    Calcule l'indice de refroidissement éolien (Wind Chill) selon la formule NOAA.
+    Applicable uniquement si temp <= 10°C et vent > 4.8 km/h.
+    Retourne None si les conditions ne s'y prêtent pas (pas de refroidissement significatif).
+    """
+    if temp_c > 10 or vent_kmh <= 4.8:
+        return None
+    wc = (13.12 + 0.6215 * temp_c
+          - 11.37 * (vent_kmh ** 0.16)
+          + 0.3965 * temp_c * (vent_kmh ** 0.16))
+    return round(wc)
+
+
+def label_wind_chill(ressenti: int | None) -> str:
+    """Retourne un label coloré selon le ressenti thermique."""
+    if ressenti is None:
+        return "—"
+    if ressenti <= -40: return f"🟣 {ressenti}°C (Danger extrême)"
+    if ressenti <= -27: return f"🔴 {ressenti}°C (Très dangereux)"
+    if ressenti <= -10: return f"🟠 {ressenti}°C (Dangereux)"
+    if ressenti <= 0:   return f"🟡 {ressenti}°C (Froid intense)"
+    return f"🔵 {ressenti}°C (Frais)"
+
+
+@st.cache_data(show_spinner=False)
+def recuperer_soleil(lat: float, lon: float, date_str: str) -> dict | None:
+    """
+    Récupère les heures de lever et coucher du soleil via l'API sunrise-sunset.org.
+    date_str : format 'YYYY-MM-DD'
+    Retourne un dict avec 'lever' et 'coucher' en objets datetime locaux (UTC+offset estimé),
+    ou None en cas d'erreur.
+    """
+    try:
+        url = f"https://api.sunrise-sunset.org/json?lat={lat}&lng={lon}&date={date_str}&formatted=0"
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        if data.get("status") != "OK":
+            return None
+        lever  = datetime.fromisoformat(data["results"]["sunrise"])
+        coucher = datetime.fromisoformat(data["results"]["sunset"])
+        return {"lever": lever, "coucher": coucher}
+    except Exception as e:
+        logger.warning(f"Impossible de récupérer le soleil : {e}")
+        return None
+
 def calculer_cap(lat1, lon1, lat2, lon2):
     lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
     dlon = lon2 - lon1
@@ -319,7 +366,7 @@ def recuperer_meteo_batch(checkpoints_frozen):
 def extraire_meteo(donnees_api, heure_api):
     vide = dict(Ciel="—", temp_val=None, Pluie="—",
                 vent_val=None, rafales_val=None, Dir="—",
-                dir_deg=None, effet="—")
+                dir_deg=None, effet="—", ressenti=None)
     if not donnees_api or "hourly" not in donnees_api:
         return vide
     heures = donnees_api["hourly"].get("time", [])
@@ -333,15 +380,19 @@ def extraire_meteo(donnees_api, heure_api):
     dir_deg = sg("wind_direction_10m")
     dirs = ["N","NE","E","SE","S","SO","O","NO"]
     dir_label = dirs[round(dir_deg / 45) % 8] if dir_deg is not None else "—"
+    temp   = sg("temperature_2m")
+    vent   = sg("wind_speed_10m")
+    ressenti = wind_chill(temp, vent) if (temp is not None and vent is not None) else None
     return {
-        "Ciel":      obtenir_icone_meteo(sg("weathercode", 0)),
-        "temp_val":  sg("temperature_2m"),
-        "Pluie":     f"{sg('precipitation_probability','—')}%",
-        "vent_val":  sg("wind_speed_10m"),
+        "Ciel":        obtenir_icone_meteo(sg("weathercode", 0)),
+        "temp_val":    temp,
+        "Pluie":       f"{sg('precipitation_probability','—')}%",
+        "vent_val":    vent,
         "rafales_val": sg("wind_gusts_10m"),
-        "Dir":       dir_label,
-        "dir_deg":   dir_deg,
-        "effet":     "—",
+        "Dir":         dir_label,
+        "dir_deg":     dir_deg,
+        "effet":       "—",
+        "ressenti":    ressenti,
     }
 
 
@@ -536,6 +587,7 @@ def creer_carte(points_gpx, resultats_meteo):
         location=[points_gpx[0].latitude, points_gpx[0].longitude],
         zoom_start=11,
         tiles="CartoDB positron",
+        scrollWheelZoom=False,
     )
     coords = [[p.latitude, p.longitude] for p in points_gpx]
     folium.PolyLine(coords, color="#3b82f6", weight=5, opacity=0.9).add_to(carte)
@@ -607,7 +659,10 @@ def creer_carte(points_gpx, resultats_meteo):
             f'{cp["Heure"]} — Km {cp["Km"]}'
             '</div>'
             f'<div style="color:#6b7280;margin-bottom:6px">⛰️ Alt : {cp["Alt (m)"]} m</div>'
-            f'<div style="font-size:15px;margin-bottom:6px">{cp["Ciel"]} <b>{t}°C</b></div>'
+            f'<div style="font-size:15px;margin-bottom:6px">{cp["Ciel"]} <b>{t}°C</b>'
+            + (f' <span style="color:#6b7280;font-size:12px">(ressenti {cp.get("ressenti")}°C)</span>'
+               if cp.get("ressenti") is not None else "")
+            + '</div>'
             f'{barre_pluie}'
             '<div style="margin-top:8px;padding-top:6px;border-top:1px solid #f3f4f6">'
             '<div style="display:flex;align-items:center;margin-bottom:3px">'
@@ -688,6 +743,12 @@ def main():
     fuseau = recuperer_fuseau(points_gpx[0].latitude, points_gpx[0].longitude)
     ph_fuseau.success(f"🌍 **{fuseau}**")
     date_depart = datetime.combine(date_dep, heure_dep)
+
+    # ── SOLEIL ───────────────────────────────────────────────────────────────
+    infos_soleil = recuperer_soleil(
+        points_gpx[0].latitude, points_gpx[0].longitude,
+        date_dep.strftime("%Y-%m-%d")
+    )
 
     # ── PHASE 1 : CALCULS PARCOURS ───────────────────────────────────────────
     checkpoints   = []
@@ -794,6 +855,39 @@ def main():
     c3.metric("⬇️ Dénivelé −",      f"{int(d_moins_tot)} m")
     c4.metric("⏱️ Durée estimée",   f"{int(temps_tot_sec//3600)}h{int((temps_tot_sec%3600)//60):02d}m")
     c5.metric("🏁 Arrivée estimée", heure_arr.strftime("%H:%M"))
+
+    # ── Lever / coucher du soleil ─────────────────────────────────────────────
+    if infos_soleil:
+        lever_utc   = infos_soleil["lever"]
+        coucher_utc = infos_soleil["coucher"]
+        # Les heures de l'API sont en UTC — on les affiche en UTC avec mention
+        lever_str   = lever_utc.strftime("%H:%M") + " UTC"
+        coucher_str = coucher_utc.strftime("%H:%M") + " UTC"
+
+        cs1, cs2, cs3 = st.columns(3)
+        cs1.metric("🌅 Lever du soleil",   lever_str)
+        cs2.metric("🌇 Coucher du soleil", coucher_str)
+
+        # Durée de lumière
+        duree_jour = coucher_utc - lever_utc
+        h_jour = int(duree_jour.seconds // 3600)
+        m_jour = int((duree_jour.seconds % 3600) // 60)
+        cs3.metric("☀️ Durée du jour",     f"{h_jour}h{m_jour:02d}m")
+
+        # Alertes nuit
+        depart_utc = date_depart.replace(tzinfo=lever_utc.tzinfo)
+        arrivee_utc = heure_arr.replace(tzinfo=lever_utc.tzinfo)
+
+        if depart_utc < lever_utc:
+            st.warning(
+                f"⚠️ **Départ avant le lever du soleil** ({lever_str}) — "
+                f"prévoyez éclairage et visibilité réduite."
+            )
+        if arrivee_utc > coucher_utc:
+            st.warning(
+                f"⚠️ **Arrivée après le coucher du soleil** ({coucher_str}) — "
+                f"prévoyez éclairage et vêtements réfléchissants."
+            )
 
     # ── 3. PROFIL ALTIMÉTRIQUE INTERACTIF ────────────────────────────────────
     st.divider()
@@ -911,16 +1005,17 @@ def main():
         for cp in resultats_meteo:
             t = cp.get("temp_val")
             lignes.append({
-                "Heure":       cp["Heure"],
-                "Km":          cp["Km"],
-                "Alt (m)":     cp["Alt (m)"],
-                "Ciel":        cp.get("Ciel", "—"),
-                "Temp (°C)":   f"{t}°C" if t is not None else "—",
-                "Pluie":       cp.get("Pluie", "—"),
-                "Vent (km/h)": cp.get("vent_val") or "—",
-                "Rafales":     cp.get("rafales_val") or "—",
-                "Direction":   cp.get("Dir", "—"),
-                "Effet vent":  cp.get("effet", "—"),
+                "Heure":        cp["Heure"],
+                "Km":           cp["Km"],
+                "Alt (m)":      cp["Alt (m)"],
+                "Ciel":         cp.get("Ciel", "—"),
+                "Temp (°C)":    f"{t}°C" if t is not None else "—",
+                "Ressenti":     label_wind_chill(cp.get("ressenti")),
+                "Pluie":        cp.get("Pluie", "—"),
+                "Vent (km/h)":  cp.get("vent_val") or "—",
+                "Rafales":      cp.get("rafales_val") or "—",
+                "Direction":    cp.get("Dir", "—"),
+                "Effet vent":   cp.get("effet", "—"),
             })
         df_meteo = pd.DataFrame(lignes)
         st.dataframe(
@@ -933,6 +1028,7 @@ def main():
                 "Alt (m)":     st.column_config.NumberColumn("⛰️ Alt (m)",   help="Altitude à ce point"),
                 "Ciel":        st.column_config.TextColumn("🌤️ Ciel",       help="Conditions générales"),
                 "Temp (°C)":   st.column_config.TextColumn("🌡️ Temp",       help="Température à 2m du sol"),
+                "Ressenti":    st.column_config.TextColumn("🥶 Ressenti",    help="Wind Chill NOAA — affiché uniquement si temp ≤ 10°C et vent > 4.8 km/h"),
                 "Pluie":       st.column_config.TextColumn("🌧️ Pluie",      help="Probabilité de précipitations"),
                 "Vent (km/h)": st.column_config.TextColumn("💨 Vent",        help="Vitesse du vent moyen à 10m"),
                 "Rafales":     st.column_config.TextColumn("🌬️ Rafales",    help="Vitesse des rafales"),
