@@ -318,15 +318,22 @@ def generer_html_resume(score, ascensions, resultats, dist_tot, d_plus, d_moins,
 # SECTION 2 : UCI
 # ==============================================================================
 
-SEUILS_UCI = {"🔴 HC":80, "🟠 1ère Cat.":40, "🟡 2ème Cat.":20, "🟢 3ème Cat.":8, "🔵 4ème Cat.":2}
+SEUILS_STRAVA = {
+    "🔴 HC":        80,
+    "🟠 1ère Cat.": 64,
+    "🟡 2ème Cat.": 32,
+    "🟢 3ème Cat.": 16,
+    "🔵 4ème Cat.":  8,
+}
 
 def categoriser_uci(distance_m, d_plus):
+    """Catégorisation Strava — Score = (D+ × pente moy.) / 100"""
     if distance_m < 300 or d_plus < 10: return None, 0
     pm = (d_plus / distance_m) * 100
     if pm < 2.0: return None, 0
     score = (d_plus * pm) / 100
-    for lbl, seuil in SEUILS_UCI.items():
-        if score >= seuil: return lbl, round(score, 2)
+    for lbl, seuil in SEUILS_STRAVA.items():
+        if score >= seuil: return lbl, round(score, 1)
     return None, 0
 
 
@@ -1206,8 +1213,8 @@ def main():
 
     # ── ASCENSIONS ───────────────────────────────────────────────────────────
     with tab_cols:
-        st.caption("**UCI** — Score = (D+ × pente moy.) / 100 · "
-                   "🔵 4ème ≥2 · 🟢 3ème ≥8 · 🟡 2ème ≥20 · 🟠 1ère ≥40 · 🔴 HC ≥80")
+        st.caption("**Catégorisation Strava** — Score = (D+ × pente moy.) / 100 · "
+                   "🔵 4ème ≥8 · 🟢 3ème ≥16 · 🟡 2ème ≥32 · 🟠 1ère ≥64 · 🔴 HC ≥80")
         if ascensions:
             for a in ascensions:
                 w     = estimer_watts(a["_pente_moy"], vitesse, poids)
