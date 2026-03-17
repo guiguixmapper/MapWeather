@@ -529,8 +529,15 @@ def creer_figure_meteo(resultats):
         hovermode="x unified",
         plot_bgcolor="white", paper_bgcolor="white",
         showlegend=False,
-        dragmode=False,          # ← désactive le pan accidentel
+        dragmode=False,
+        font=dict(color="#1e293b"),
+        title_font=dict(color="#1e293b"),
+        annotationdefaults=dict(font=dict(color="#1e293b")),
     )
+    # Titres des subplots en noir explicite
+    for annotation in fig.layout.annotations:
+        annotation.font.color = "#1e293b"
+        annotation.font.size  = 13
     # Axes Y
     fig.update_yaxes(showgrid=True, gridcolor="#f1f5f9", row=1, col=1, title_text="°C")
     fig.update_yaxes(showgrid=True, gridcolor="#f1f5f9", row=2, col=1, title_text="km/h", rangemode="tozero")
