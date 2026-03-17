@@ -777,12 +777,12 @@ def main():
       </div>
       <div style="width:1px;background:rgba(255,255,255,0.2);align-self:stretch;margin:0 4px"></div>
       <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center">
-        <div style="text-align:center"><div style="font-size:1.2rem;font-weight:700">{round(dist_tot/1000,1)} km</div><div style="font-size:.7rem;opacity:.7">📏 Distance</div></div>
-        <div style="text-align:center"><div style="font-size:1.2rem;font-weight:700">{int(d_plus)} m</div><div style="font-size:.7rem;opacity:.7">⬆️ Dénivelé +</div></div>
-        <div style="text-align:center"><div style="font-size:1.2rem;font-weight:700">{int(d_moins)} m</div><div style="font-size:.7rem;opacity:.7">⬇️ Dénivelé −</div></div>
-        <div style="text-align:center"><div style="font-size:1.2rem;font-weight:700">{dh}h{dm:02d}m</div><div style="font-size:.7rem;opacity:.7">⏱️ Durée</div></div>
-        <div style="text-align:center"><div style="font-size:1.2rem;font-weight:700">{heure_arr.strftime('%H:%M')}</div><div style="font-size:.7rem;opacity:.7">🏁 Arrivée</div></div>
-        <div style="text-align:center"><div style="font-size:1.2rem;font-weight:700">{len(ascensions)}</div><div style="font-size:.7rem;opacity:.7">🏔️ Cols</div></div>
+        <div style="text-align:center"><div style="font-size:1.6rem;font-weight:700">{round(dist_tot/1000,1)} km</div><div style="font-size:.8rem;opacity:.75">📏 Distance</div></div>
+        <div style="text-align:center"><div style="font-size:1.6rem;font-weight:700">{int(d_plus)} m</div><div style="font-size:.8rem;opacity:.75">⬆️ Dénivelé +</div></div>
+        <div style="text-align:center"><div style="font-size:1.6rem;font-weight:700">{int(d_moins)} m</div><div style="font-size:.8rem;opacity:.75">⬇️ Dénivelé −</div></div>
+        <div style="text-align:center"><div style="font-size:1.6rem;font-weight:700">{dh}h{dm:02d}m</div><div style="font-size:.8rem;opacity:.75">⏱️ Durée</div></div>
+        <div style="text-align:center"><div style="font-size:1.6rem;font-weight:700">{heure_arr.strftime('%H:%M')}</div><div style="font-size:.8rem;opacity:.75">🏁 Arrivée</div></div>
+        <div style="text-align:center"><div style="font-size:1.6rem;font-weight:700">{len(ascensions)}</div><div style="font-size:.8rem;opacity:.75">🏔️ Cols</div></div>
       </div>
     </div>""", unsafe_allow_html=True)
 
