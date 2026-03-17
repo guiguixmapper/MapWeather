@@ -554,11 +554,11 @@ def creer_figure_meteo(resultats):
 # SECTION 7 : CARTE
 # ==============================================================================
 
-def creer_carte(points_gpx, resultats):
+def creer_carte(points_gpx, resultats, tiles="CartoDB positron"):
     carte = folium.Map(
         location=[points_gpx[0].latitude, points_gpx[0].longitude],
-        zoom_start=11, tiles="CartoDB positron",
-        scrollWheelZoom=True,   # ← zoom molette réactivé (carte dans son onglet)
+        zoom_start=11, tiles=tiles,
+        scrollWheelZoom=True,
     )
     folium.PolyLine([[p.latitude,p.longitude] for p in points_gpx],
                     color="#2563eb", weight=5, opacity=0.9).add_to(carte)
@@ -812,7 +812,22 @@ def main():
             if heure_arr.replace(tzinfo=tz) > infos_soleil["coucher"]:
                 st.warning(f"⚠️ Arrivée après le coucher ({cs} UTC) — prévoyez un éclairage.")
 
-        carte = creer_carte(points_gpx, resultats)
+        FONDS_CARTE = {
+            "🗺️ CartoDB Positron (épuré)":     "CartoDB positron",
+            "🌑 CartoDB Dark Matter (sombre)":  "CartoDB dark_matter",
+            "🌍 OpenStreetMap (classique)":     "OpenStreetMap",
+            "🏔️ Stamen Terrain (relief)":       "Stamen Terrain",
+            "⬛ Stamen Toner (N&B)":            "Stamen Toner",
+        }
+        fond_choisi = st.selectbox(
+            "🖼️ Fond de carte",
+            options=list(FONDS_CARTE.keys()),
+            index=0,
+            help="Change le style de la carte."
+        )
+        tiles = FONDS_CARTE[fond_choisi]
+
+        carte = creer_carte(points_gpx, resultats, tiles)
         st_folium(carte, width="100%", height=700, returned_objects=[])
 
     # ── PROFIL ───────────────────────────────────────────────────────────────
