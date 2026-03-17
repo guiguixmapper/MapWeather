@@ -769,47 +769,47 @@ def main():
                 display:flex;align-items:center;gap:0;flex-wrap:wrap">
 
       <!-- Score -->
-      <div style="min-width:140px;padding-right:20px;border-right:1px solid rgba(255,255,255,0.2)">
+      <div style="min-width:160px;padding-right:24px;border-right:1px solid rgba(255,255,255,0.25)">
         <div style="font-size:2.8rem;font-weight:900;line-height:1">{score['total']}<span style="font-size:1.2rem">/10</span></div>
         <div style="font-size:.95rem;font-weight:600;margin-top:2px">{score['label']}</div>
         <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
-          <span style="background:rgba(255,255,255,.15);border-radius:20px;padding:3px 10px;font-size:.75rem">🌤️ {score['score_meteo']}/4</span>
-          <span style="background:rgba(255,255,255,.15);border-radius:20px;padding:3px 10px;font-size:.75rem">⛰️ {score['score_cols']}/3</span>
-          <span style="background:rgba(255,255,255,.15);border-radius:20px;padding:3px 10px;font-size:.75rem">⚡ {score['score_effort']}/3</span>
+          <span style="background:rgba(255,255,255,.2);border-radius:20px;padding:3px 10px;font-size:.75rem;color:white">🌤️ {score['score_meteo']}/4</span>
+          <span style="background:rgba(255,255,255,.2);border-radius:20px;padding:3px 10px;font-size:.75rem;color:white">⛰️ {score['score_cols']}/3</span>
+          <span style="background:rgba(255,255,255,.2);border-radius:20px;padding:3px 10px;font-size:.75rem;color:white">⚡ {score['score_effort']}/3</span>
         </div>
       </div>
 
       <!-- Métriques -->
       <div style="display:flex;gap:0;flex:1;flex-wrap:wrap;padding-left:8px">
-        <div style="flex:1;min-width:90px;text-align:center;padding:6px 12px;border-right:1px solid rgba(255,255,255,0.15)">
+        <div style="flex:1;min-width:90px;text-align:center;padding:6px 12px;border-right:1px solid rgba(255,255,255,0.2)">
           <div style="font-size:1.9rem;font-weight:800;line-height:1.1">{round(dist_tot/1000,1)}</div>
-          <div style="font-size:.95rem;font-weight:500;opacity:.7">km</div>
-          <div style="font-size:.7rem;opacity:.55;margin-top:1px">📏 Distance</div>
+          <div style="font-size:.9rem;font-weight:600;color:rgba(255,255,255,0.85)">km</div>
+          <div style="font-size:.75rem;color:rgba(255,255,255,0.6);margin-top:1px">📏 Distance</div>
         </div>
-        <div style="flex:1;min-width:90px;text-align:center;padding:6px 12px;border-right:1px solid rgba(255,255,255,0.15)">
+        <div style="flex:1;min-width:90px;text-align:center;padding:6px 12px;border-right:1px solid rgba(255,255,255,0.2)">
           <div style="font-size:1.9rem;font-weight:800;line-height:1.1">{int(d_plus)}</div>
-          <div style="font-size:.95rem;font-weight:500;opacity:.7">m</div>
-          <div style="font-size:.7rem;opacity:.55;margin-top:1px">⬆️ D+</div>
+          <div style="font-size:.9rem;font-weight:600;color:rgba(255,255,255,0.85)">m</div>
+          <div style="font-size:.75rem;color:rgba(255,255,255,0.6);margin-top:1px">⬆️ Dénivelé +</div>
         </div>
-        <div style="flex:1;min-width:90px;text-align:center;padding:6px 12px;border-right:1px solid rgba(255,255,255,0.15)">
+        <div style="flex:1;min-width:90px;text-align:center;padding:6px 12px;border-right:1px solid rgba(255,255,255,0.2)">
           <div style="font-size:1.9rem;font-weight:800;line-height:1.1">{int(d_moins)}</div>
-          <div style="font-size:.95rem;font-weight:500;opacity:.7">m</div>
-          <div style="font-size:.7rem;opacity:.55;margin-top:1px">⬇️ D−</div>
+          <div style="font-size:.9rem;font-weight:600;color:rgba(255,255,255,0.85)">m</div>
+          <div style="font-size:.75rem;color:rgba(255,255,255,0.6);margin-top:1px">⬇️ Dénivelé −</div>
         </div>
-        <div style="flex:1;min-width:90px;text-align:center;padding:6px 12px;border-right:1px solid rgba(255,255,255,0.15)">
+        <div style="flex:1;min-width:90px;text-align:center;padding:6px 12px;border-right:1px solid rgba(255,255,255,0.2)">
           <div style="font-size:1.9rem;font-weight:800;line-height:1.1">{dh}h{dm:02d}</div>
-          <div style="font-size:.95rem;font-weight:500;opacity:.7">min</div>
-          <div style="font-size:.7rem;opacity:.55;margin-top:1px">⏱️ Durée</div>
+          <div style="font-size:.9rem;font-weight:600;color:rgba(255,255,255,0.85)">min</div>
+          <div style="font-size:.75rem;color:rgba(255,255,255,0.6);margin-top:1px">⏱️ Durée</div>
         </div>
-        <div style="flex:1;min-width:90px;text-align:center;padding:6px 12px;border-right:1px solid rgba(255,255,255,0.15)">
+        <div style="flex:1;min-width:90px;text-align:center;padding:6px 12px;border-right:1px solid rgba(255,255,255,0.2)">
           <div style="font-size:1.9rem;font-weight:800;line-height:1.1">{heure_arr.strftime('%H:%M')}</div>
-          <div style="font-size:.95rem;font-weight:500;opacity:.7">&nbsp;</div>
-          <div style="font-size:.7rem;opacity:.55;margin-top:1px">🏁 Arrivée</div>
+          <div style="font-size:.9rem;font-weight:600;color:rgba(255,255,255,0.85)">&nbsp;</div>
+          <div style="font-size:.75rem;color:rgba(255,255,255,0.6);margin-top:1px">🏁 Arrivée</div>
         </div>
         <div style="flex:1;min-width:90px;text-align:center;padding:6px 12px">
           <div style="font-size:1.9rem;font-weight:800;line-height:1.1">{len(ascensions)}</div>
-          <div style="font-size:.95rem;font-weight:500;opacity:.7">cols</div>
-          <div style="font-size:.7rem;opacity:.55;margin-top:1px">🏔️ Détectés</div>
+          <div style="font-size:.9rem;font-weight:600;color:rgba(255,255,255,0.85)">cols</div>
+          <div style="font-size:.75rem;color:rgba(255,255,255,0.6);margin-top:1px">🏔️ Détectés</div>
         </div>
       </div>
 
