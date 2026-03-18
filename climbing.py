@@ -48,7 +48,7 @@ LEGENDE_UCI = (
 )
 
 D_PLUS_MIN   = 30     # m — abaissé pour capter les petites côtes
-SEUIL_PENTE  = 1.0    # % — seuil d'inflexion de pente
+SEUIL_PENTE  = 0.5    # % — seuil d'inflexion de pente (0.5% = quasi-plat)
 FENETRE_KM   = 2.0    # km — fenêtre de calcul de la pente
 
 
