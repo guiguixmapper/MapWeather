@@ -1,6 +1,6 @@
 """
-climbing.py
-===========
+climbing.py — v5
+================
 Détection et catégorisation des ascensions — formule UCI officielle.
 
 Algorithme de détection du point de départ :
@@ -61,7 +61,7 @@ def categoriser_uci(distance_m, d_plus):
     if distance_m < 200 or d_plus < D_PLUS_MIN:
         return None, 0.0
     pente_moy = (d_plus / distance_m) * 100
-    if pente_moy < 1.5:   # pente trop faible → faux-plat ignoré
+    if pente_moy < 1.0:   # pente trop faible → faux-plat ignoré
         return None, 0.0
     score = (d_plus * pente_moy) / 100
     for label, seuil in SEUILS_UCI.items():
@@ -347,9 +347,8 @@ def detecter_ascensions(df):
         # Longueur approximative depuis le creux détecté
         dk_brut = dists[sommet_idx] - dists[creux_idx]
 
-        if dk_brut >= 20.0:
+        if dk_brut >= 25.0:
             # Très grande montée (>= 20km) → creux absolu depuis la borne gauche
-            # L'inflexion est trop instable sur de longues montées progressives
             debut_idx = min(
                 range(borne_gauche, sommet_idx),
                 key=lambda i: alts_lisses[i]
@@ -360,9 +359,13 @@ def detecter_ascensions(df):
                 dists, alts_lisses, borne_gauche, sommet_idx
             )
         else:
-            # Petite montée (< 5km) → creux absolu
-            debut_idx = min(
-                range(borne_gauche, sommet_idx),
+            # Petite montée (< 5km) → creux absolu mais dans une fenêtre
+            # limitée à 15km avant le sommet pour ne pas remonter trop loin
+            km_sommet    = dists[sommet_idx]
+            km_fen_debut = max(dists[borne_gauche], km_sommet - 20.0)
+            idx_fen      = min(range(len(dists)), key=lambda i: abs(dists[i] - km_fen_debut))
+            debut_idx    = min(
+                range(idx_fen, sommet_idx),
                 key=lambda i: alts_lisses[i]
             )
 
