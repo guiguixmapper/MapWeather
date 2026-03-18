@@ -216,13 +216,21 @@ def _detecter_sommets(dists, alts_lisses):
     """
     Trouve les sommets locaux significatifs du profil.
     Un sommet est retenu si on descend ensuite de plus de MARGE depuis lui.
-    MARGE adaptive : 8% du D+ depuis le dernier creux, min 20m.
+    MARGE adaptive : 12% du D+ depuis le dernier creux, min 15m, max 200m.
     """
     n         = len(alts_lisses)
     sommets   = []
     en_montee = False
     creux_idx = 0
     som_idx   = 0
+
+    # Si le parcours commence en montée dès le départ,
+    # on initialise directement en mode montée
+    for i in range(1, min(20, n)):
+        if alts_lisses[i] > alts_lisses[0] + 10:
+            en_montee = True
+            som_idx   = i
+            break
 
     for i in range(1, n):
         a = alts_lisses[i]
@@ -236,18 +244,15 @@ def _detecter_sommets(dists, alts_lisses):
             if a > alts_lisses[som_idx]:
                 som_idx = i
             else:
-                d_plus_c  = alts_lisses[som_idx] - alts_lisses[creux_idx]
-                # Marge adaptive : 12% du D+ courant, min 15m, max 200m
-                # Max à 200m pour ne pas couper les grandes montées alpines
-                marge     = max(15.0, min(200.0, d_plus_c * 0.12))
+                d_plus_c = alts_lisses[som_idx] - alts_lisses[creux_idx]
+                marge    = max(15.0, min(200.0, d_plus_c * 0.12))
                 if a <= alts_lisses[som_idx] - marge:
                     sommets.append((creux_idx, som_idx))
                     en_montee = False
                     creux_idx = i
                     som_idx   = i
 
-    # Montée en cours à la fin du parcours — toujours enregistrée
-    # (étape qui finit sur un col ou en altitude)
+    # Montée en cours à la fin du parcours
     if en_montee and som_idx > creux_idx:
         sommets.append((creux_idx, som_idx))
 
