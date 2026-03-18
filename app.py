@@ -330,8 +330,10 @@ def creer_figure_profil(df, ascensions, vitesse, ref_val, mode, poids, idx_survo
             fillcolor=f"rgba({r},{g},{b},{round(op*0.35,2)})",
             line=dict(color=coul, width=3 if idx_survol==i else 2),
             opacity=op,
-            hovertemplate=f"<b>{cat}</b> — {zlbl}<br>Km %{{x:.1f}}<br>Alt : %{{y:.0f}} m<br>{hover_extra}<extra></extra>",
-            name=f"{cat} · {zlbl}",
+            hovertemplate=f"<b>{cat}</b><br>Km %{{x:.1f}}<br>Alt : %{{y:.0f}} m<br>{hover_extra}<extra></extra>",
+            name=cat,
+            showlegend=True,
+            legendgroup=cat,
         ))
         fig.add_annotation(
             x=d1, y=sy[-1] if sy else 0,
