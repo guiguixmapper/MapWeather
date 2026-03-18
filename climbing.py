@@ -256,8 +256,11 @@ def _detecter_sommets(dists, alts_lisses):
 
 def _fusionner(sommets, alts_lisses):
     """
-    Fusionne les ascensions consécutives dont la descente intermédiaire
-    est < 15% du D+ combiné (col avec replat ou courte descente).
+    Fusionne deux segments consécutifs uniquement si la descente intermédiaire
+    est faible EN VALEUR ABSOLUE (< 50m) ET en proportion (< 20% du D+ du 2ème segment).
+    
+    Logique : un replat sur une montée descend peu en absolu.
+    Une vraie descente entre deux cols descend beaucoup.
     """
     if not sommets:
         return []
@@ -266,17 +269,14 @@ def _fusionner(sommets, alts_lisses):
 
     for creux, sommet in sommets[1:]:
         prev_creux, prev_sommet = fusionnes[-1]
-        descente_inter = alts_lisses[prev_sommet] - alts_lisses[creux]
-        d_plus_combine = (
-            (alts_lisses[prev_sommet] - alts_lisses[prev_creux]) +
-            (alts_lisses[sommet]      - alts_lisses[creux])
-        )
-        # Seuil de fusion adaptatif :
-        # - Petite montée (D+ < 200m) : 35% → fusionne les replats courts
-        # - Grande montée (D+ > 500m) : 20% → plus strict pour ne pas avaler deux cols distincts
-        ratio_fusion  = 0.35 if d_plus_combine < 400 else 0.25
-        if 0 < descente_inter < d_plus_combine * ratio_fusion:
-            # Fusion : même montée
+
+        descente_abs  = alts_lisses[prev_sommet] - alts_lisses[creux]
+        d_plus_second = alts_lisses[sommet] - alts_lisses[creux]
+
+        # Fusion seulement si :
+        # - descente absolue < 60m (c'est un replat, pas une vraie descente)
+        # - ET descente < 25% du D+ du second segment
+        if descente_abs > 0 and descente_abs < 60 and descente_abs < d_plus_second * 0.25:
             nouveau_som = (
                 sommet if alts_lisses[sommet] >= alts_lisses[prev_sommet]
                 else prev_sommet
@@ -384,4 +384,3 @@ def detecter_ascensions(df):
 
     ascensions.sort(key=lambda x: x["_debut_km"])
     return ascensions
-    
