@@ -329,12 +329,23 @@ def detecter_ascensions(df):
 
     ascensions = []
     for k, (creux_idx, sommet_idx) in enumerate(sommets):
-        # Étape 2 : point de départ par inflexion de pente
-        # Borne gauche = sommet de l'ascension précédente (ou début du parcours)
         borne_gauche = sommets[k-1][1] if k > 0 else 0
-        debut_idx    = _trouver_depart_inflexion(
-            dists, alts_lisses, borne_gauche, sommet_idx
-        )
+
+        # Longueur approximative depuis le creux détecté
+        dk_brut = dists[sommet_idx] - dists[creux_idx]
+
+        if dk_brut >= 5.0:
+            # Grande montée (>= 5km) → inflexion de pente
+            debut_idx = _trouver_depart_inflexion(
+                dists, alts_lisses, borne_gauche, sommet_idx
+            )
+        else:
+            # Petite montée (< 5km) → creux absolu entre borne_gauche et sommet
+            # Plus robuste sur les côtes courtes où l'inflexion est instable
+            debut_idx = min(
+                range(borne_gauche, sommet_idx),
+                key=lambda i: alts_lisses[i]
+            )
 
         dk = dists[sommet_idx] - dists[debut_idx]
         dp = alts_raw[sommet_idx] - alts_raw[debut_idx]
