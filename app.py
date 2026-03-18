@@ -358,6 +358,142 @@ def creer_figure_profil(df, ascensions, vitesse, ref_val, mode, poids, idx_survo
     return fig
 
 
+def creer_figure_col(df_profil, asc, nb_segments=None):
+    """
+    Graphique zoomé sur une ascension avec segments colorés par intensité de pente.
+
+    - Segments automatiques : longueur adaptée à la montée
+      (500m pour < 5km, 1km pour 5-15km, 2km pour > 15km)
+    - Couleur progressive : vert → jaune → orange → rouge selon la pente
+    - Annotations de pente sur chaque segment
+    """
+    d0   = asc["_debut_km"]
+    d1   = asc["_sommet_km"]
+    dk   = d1 - d0
+
+    # Extraire les points de la montée
+    mask = [(d0 <= d <= d1) for d in df_profil["Distance (km)"]]
+    dists_col = [d for d, m in zip(df_profil["Distance (km)"], mask) if m]
+    alts_col  = [a for a, m in zip(df_profil["Altitude (m)"], mask) if m]
+
+    if len(dists_col) < 2:
+        return None
+
+    # Longueur de segment automatique si non spécifiée
+    if nb_segments is None:
+        if dk < 5:    seg_km = 0.5
+        elif dk < 15: seg_km = 1.0
+        else:         seg_km = 2.0
+    else:
+        seg_km = dk / nb_segments
+
+    def couleur_pente(p):
+        """Vert → Jaune → Orange → Rouge selon la pente."""
+        if p < 3:    return "#22c55e"   # vert
+        elif p < 6:  return "#84cc16"   # vert-jaune
+        elif p < 8:  return "#eab308"   # jaune
+        elif p < 10: return "#f97316"   # orange
+        elif p < 12: return "#ef4444"   # rouge
+        else:        return "#7f1d1d"   # rouge foncé — "fait peur"
+
+    fig = go.Figure()
+
+    # Tracé de fond
+    fig.add_trace(go.Scatter(
+        x=dists_col, y=alts_col,
+        fill="tozeroy", fillcolor="rgba(203,213,225,0.2)",
+        line=dict(color="#94a3b8", width=1),
+        hoverinfo="skip", showlegend=False,
+    ))
+
+    # Segments colorés par pente
+    km_debut_seg = dists_col[0]
+    while km_debut_seg < dists_col[-1] - 0.05:
+        km_fin_seg = min(km_debut_seg + seg_km, dists_col[-1])
+
+        # Points du segment
+        sx = [d for d in dists_col if km_debut_seg <= d <= km_fin_seg]
+        sy = [alts_col[j] for j, d in enumerate(dists_col) if km_debut_seg <= d <= km_fin_seg]
+
+        if len(sx) < 2:
+            km_debut_seg = km_fin_seg
+            continue
+
+        dist_m = (sx[-1] - sx[0]) * 1000
+        d_plus = max(0, sy[-1] - sy[0])
+        pente  = (d_plus / dist_m * 100) if dist_m > 0 else 0
+        coul   = couleur_pente(pente)
+
+        r, g, b = int(coul[1:3], 16), int(coul[3:5], 16), int(coul[5:7], 16)
+        km_mid  = (sx[0] + sx[-1]) / 2
+
+        fig.add_trace(go.Scatter(
+            x=sx, y=sy,
+            fill="tozeroy",
+            fillcolor=f"rgba({r},{g},{b},0.4)",
+            line=dict(color=coul, width=3),
+            hovertemplate=f"<b>{round(pente, 1)}%</b><br>Km %{{x:.1f}}<br>Alt : %{{y:.0f}} m<extra></extra>",
+            showlegend=False,
+        ))
+
+        # Annotation pente au milieu du segment (si assez long)
+        if dist_m > 300:
+            alt_mid = sy[len(sy)//2]
+            fig.add_annotation(
+                x=km_mid, y=alt_mid,
+                text=f"<b>{round(pente, 1)}%</b>",
+                showarrow=False,
+                font=dict(size=10, color=coul),
+                bgcolor="rgba(255,255,255,0.8)",
+                bordercolor=coul, borderwidth=1,
+                yshift=12,
+            )
+
+        km_debut_seg = km_fin_seg
+
+    # Ligne de profil par-dessus
+    fig.add_trace(go.Scatter(
+        x=dists_col, y=alts_col,
+        mode="lines",
+        line=dict(color="#1e293b", width=2),
+        hovertemplate="Km %{x:.1f} — Alt : %{y:.0f} m<extra></extra>",
+        showlegend=False,
+    ))
+
+    # Légende couleurs en annotations
+    legende_couleurs = [
+        (3,  "#22c55e", "< 3%"),
+        (6,  "#eab308", "3–6%"),
+        (8,  "#f97316", "6–8%"),
+        (10, "#ef4444", "8–12%"),
+        (15, "#7f1d1d", "> 12%"),
+    ]
+
+    fig.update_layout(
+        height=380,
+        margin=dict(l=50, r=20, t=40, b=40),
+        xaxis=dict(
+            title="Distance (km)",
+            showgrid=True, gridcolor="#f1f5f9",
+            title_font=dict(color="#1e293b"), tickfont=dict(color="#1e293b"),
+        ),
+        yaxis=dict(
+            title="Altitude (m)",
+            showgrid=True, gridcolor="#f1f5f9",
+            title_font=dict(color="#1e293b"), tickfont=dict(color="#1e293b"),
+        ),
+        plot_bgcolor="white", paper_bgcolor="white",
+        font=dict(color="#1e293b"),
+        hovermode="x unified",
+        title=dict(
+            text=f"{asc['Catégorie']} — {asc['Longueur']} · {asc['Dénivelé']} · {asc['Pente moy.']} moy. · {asc['Pente max']} max",
+            font=dict(size=13, color="#1e293b"),
+            x=0,
+        ),
+    )
+    return fig
+
+
 def creer_figure_meteo(resultats):
     """
     3 graphiques empilés indépendants avec dragmode désactivé.
@@ -900,6 +1036,48 @@ def main():
                     "Zone":   st.column_config.TextColumn("Zone",   help="Zone d'entraînement"),
                     "Effort": st.column_config.TextColumn("Effort", help="Intensité estimée"),
                 })
+
+            # ── Graphique de col détaillé ─────────────────────────────────
+            st.divider()
+            st.subheader("🔍 Profil détaillé d'une montée")
+
+            noms_cols = [
+                f"{a['Catégorie']} — Km {a['Départ (km)']}→{a['Sommet (km)']} ({a['Longueur']}, {a['Dénivelé']})"
+                for a in ascensions
+            ]
+            col_choix = st.selectbox("Choisir une montée :", options=noms_cols, index=0)
+            idx_col   = noms_cols.index(col_choix)
+            asc_sel   = ascensions[idx_col]
+
+            dk_sel = asc_sel["_sommet_km"] - asc_sel["_debut_km"]
+            if dk_sel < 5:    seg_defaut = 0.5
+            elif dk_sel < 15: seg_defaut = 1.0
+            else:             seg_defaut = 2.0
+
+            col_ctrl1, col_ctrl2 = st.columns([3, 1])
+            with col_ctrl1:
+                seg_km = st.slider(
+                    "Longueur des segments (km)",
+                    min_value=0.25, max_value=min(5.0, dk_sel / 2),
+                    value=float(seg_defaut), step=0.25,
+                    help="Ajuste la granularité des segments de pente"
+                )
+            with col_ctrl2:
+                nb_segs = max(2, int(dk_sel / seg_km))
+                st.metric("Segments", nb_segs)
+
+            if not df_profil.empty:
+                fig_col = creer_figure_col(df_profil, asc_sel, nb_segments=nb_segs)
+                if fig_col:
+                    st.plotly_chart(fig_col, use_container_width=True)
+
+                # Légende couleurs
+                st.markdown(
+                    "**Intensité de pente :** "
+                    "🟢 < 3% &nbsp;·&nbsp; 🟡 3–6% &nbsp;·&nbsp; "
+                    "🟠 6–8% &nbsp;·&nbsp; 🔴 8–12% &nbsp;·&nbsp; "
+                    "🟤 > 12%"
+                )
         else:
             st.success("🚴‍♂️ Aucune difficulté catégorisée — parcours roulant !")
 
