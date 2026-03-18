@@ -25,11 +25,12 @@ import pandas as pd
 # ==============================================================================
 
 SEUILS_UCI = {
-    "🔴 HC":        80,
-    "🟠 1ère Cat.": 40,
-    "🟡 2ème Cat.": 20,
-    "🟢 3ème Cat.":  8,
-    "🔵 4ème Cat.":  2,
+    "🔴 HC":          80,
+    "🟠 1ère Cat.":   40,
+    "🟡 2ème Cat.":   20,
+    "🟢 3ème Cat.":    8,
+    "🔵 4ème Cat.":    2,
+    "⚪ NC":           0,   # Non classée — petite côte sous les seuils UCI
 }
 
 COULEURS_CAT = {
@@ -38,27 +39,29 @@ COULEURS_CAT = {
     "🟡 2ème Cat.":   "#eab308",
     "🟢 3ème Cat.":   "#22c55e",
     "🔵 4ème Cat.":   "#3b82f6",
+    "⚪ NC":          "#94a3b8",
 }
 
 LEGENDE_UCI = (
     "**Catégorisation UCI** — Score = (D+ x pente moy.) / 100 · "
-    "🔵 4ème >=2 · 🟢 3ème >=8 · 🟡 2ème >=20 · 🟠 1ère >=40 · 🔴 HC >=80"
+    "⚪ NC ≥0 · 🔵 4ème ≥2 · 🟢 3ème ≥8 · 🟡 2ème ≥20 · 🟠 1ère ≥40 · 🔴 HC ≥80"
 )
 
-D_PLUS_MIN   = 50     # m — D+ minimum pour qu'une montée soit considérée
-SEUIL_PENTE  = 1.0    # % — en dessous de cette pente on considère que la montée n'a pas commencé
-FENETRE_KM   = 2.0    # km — fenêtre de calcul de la pente moyenne
+D_PLUS_MIN   = 30     # m — abaissé pour capter les petites côtes
+SEUIL_PENTE  = 1.0    # % — seuil d'inflexion de pente
+FENETRE_KM   = 2.0    # km — fenêtre de calcul de la pente
 
 
 def categoriser_uci(distance_m, d_plus):
     """
     Catégorisation UCI : Score = (D+ x pente_moy) / 100.
-    Retourne (catégorie, score) ou (None, 0).
+    Retourne (catégorie, score) ou (None, 0) si non qualifiable.
+    Les montées avec D+ >= 30m mais score < 2 sont classées ⚪ NC.
     """
-    if distance_m < 300 or d_plus < D_PLUS_MIN:
+    if distance_m < 200 or d_plus < D_PLUS_MIN:
         return None, 0.0
     pente_moy = (d_plus / distance_m) * 100
-    if pente_moy < 2.0:
+    if pente_moy < 1.5:   # pente trop faible → faux-plat ignoré
         return None, 0.0
     score = (d_plus * pente_moy) / 100
     for label, seuil in SEUILS_UCI.items():
@@ -234,7 +237,7 @@ def _detecter_sommets(dists, alts_lisses):
                 som_idx = i
             else:
                 d_plus_c  = alts_lisses[som_idx] - alts_lisses[creux_idx]
-                marge     = max(20.0, d_plus_c * 0.08)
+                marge     = max(15.0, d_plus_c * 0.10)
                 if a <= alts_lisses[som_idx] - marge:
                     sommets.append((creux_idx, som_idx))
                     en_montee = False
@@ -264,7 +267,7 @@ def _fusionner(sommets, alts_lisses):
             (alts_lisses[prev_sommet] - alts_lisses[prev_creux]) +
             (alts_lisses[sommet]      - alts_lisses[creux])
         )
-        if 0 < descente_inter < d_plus_combine * 0.15:
+        if 0 < descente_inter < d_plus_combine * 0.25:
             # Fusion : même montée
             nouveau_som = (
                 sommet if alts_lisses[sommet] >= alts_lisses[prev_sommet]
