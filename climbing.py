@@ -267,7 +267,7 @@ def _fusionner(sommets, alts_lisses):
             (alts_lisses[prev_sommet] - alts_lisses[prev_creux]) +
             (alts_lisses[sommet]      - alts_lisses[creux])
         )
-        if 0 < descente_inter < d_plus_combine * 0.25:
+        if 0 < descente_inter < d_plus_combine * 0.35:
             # Fusion : même montée
             nouveau_som = (
                 sommet if alts_lisses[sommet] >= alts_lisses[prev_sommet]
