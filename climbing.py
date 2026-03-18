@@ -353,8 +353,8 @@ def detecter_ascensions(df):
                 range(borne_gauche, sommet_idx),
                 key=lambda i: alts_lisses[i]
             )
-        elif dk_brut >= 5.0:
-            # Grande montée (5-20km) → inflexion de pente
+        elif dk_brut >= 8.0:
+            # Grande montée (8-25km) → inflexion de pente
             debut_idx = _trouver_depart_inflexion(
                 dists, alts_lisses, borne_gauche, sommet_idx
             )
