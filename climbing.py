@@ -237,13 +237,17 @@ def _detecter_sommets(dists, alts_lisses):
                 som_idx = i
             else:
                 d_plus_c  = alts_lisses[som_idx] - alts_lisses[creux_idx]
-                marge     = max(15.0, d_plus_c * 0.10)
+                # Marge adaptive : 12% du D+ courant, min 15m, max 200m
+                # Max à 200m pour ne pas couper les grandes montées alpines
+                marge     = max(15.0, min(200.0, d_plus_c * 0.12))
                 if a <= alts_lisses[som_idx] - marge:
                     sommets.append((creux_idx, som_idx))
                     en_montee = False
                     creux_idx = i
                     som_idx   = i
 
+    # Montée en cours à la fin du parcours — toujours enregistrée
+    # (étape qui finit sur un col ou en altitude)
     if en_montee and som_idx > creux_idx:
         sommets.append((creux_idx, som_idx))
 
@@ -267,7 +271,11 @@ def _fusionner(sommets, alts_lisses):
             (alts_lisses[prev_sommet] - alts_lisses[prev_creux]) +
             (alts_lisses[sommet]      - alts_lisses[creux])
         )
-        if 0 < descente_inter < d_plus_combine * 0.35:
+        # Seuil de fusion adaptatif :
+        # - Petite montée (D+ < 200m) : 35% → fusionne les replats courts
+        # - Grande montée (D+ > 500m) : 20% → plus strict pour ne pas avaler deux cols distincts
+        ratio_fusion  = 0.35 if d_plus_combine < 400 else 0.25
+        if 0 < descente_inter < d_plus_combine * ratio_fusion:
             # Fusion : même montée
             nouveau_som = (
                 sommet if alts_lisses[sommet] >= alts_lisses[prev_sommet]
@@ -376,3 +384,4 @@ def detecter_ascensions(df):
 
     ascensions.sort(key=lambda x: x["_debut_km"])
     return ascensions
+    
