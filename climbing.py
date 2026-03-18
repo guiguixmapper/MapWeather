@@ -347,14 +347,20 @@ def detecter_ascensions(df):
         # Longueur approximative depuis le creux détecté
         dk_brut = dists[sommet_idx] - dists[creux_idx]
 
-        if dk_brut >= 5.0:
-            # Grande montée (>= 5km) → inflexion de pente
+        if dk_brut >= 20.0:
+            # Très grande montée (>= 20km) → creux absolu depuis la borne gauche
+            # L'inflexion est trop instable sur de longues montées progressives
+            debut_idx = min(
+                range(borne_gauche, sommet_idx),
+                key=lambda i: alts_lisses[i]
+            )
+        elif dk_brut >= 5.0:
+            # Grande montée (5-20km) → inflexion de pente
             debut_idx = _trouver_depart_inflexion(
                 dists, alts_lisses, borne_gauche, sommet_idx
             )
         else:
-            # Petite montée (< 5km) → creux absolu entre borne_gauche et sommet
-            # Plus robuste sur les côtes courtes où l'inflexion est instable
+            # Petite montée (< 5km) → creux absolu
             debut_idx = min(
                 range(borne_gauche, sommet_idx),
                 key=lambda i: alts_lisses[i]
