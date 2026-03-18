@@ -3,30 +3,25 @@ climbing.py
 ===========
 Détection et catégorisation des ascensions — formule UCI officielle.
 
-Algorithme :
-    1. Lissage léger du profil GPS (moyenne mobile f=7)
-    2. Détection des segments montants bruts
-    3. Fusion des segments séparés par une descente < 15% du D+ combiné
-    4. Filtrage : D+ >= 50m
-    5. Catégorisation UCI : Score = (D+ x pente_moy) / 100
+Algorithme de détection du point de départ :
+    Approche par point d'inflexion de pente — on remonte depuis le sommet
+    et on cherche le dernier endroit où la pente moyenne (sur 2km) passe
+    sous 1% de manière soutenue. C'est "là où ça commence vraiment à monter".
 
-Fonctions publiques :
-    detecter_ascensions(df)
-    categoriser_uci(distance_m, d_plus)
-    estimer_watts(pente, vitesse, poids)
-    estimer_fc(watts, ftp, fc_max)
-    estimer_temps_col(dist_km, pente, vitesse)
-    calculer_calories(poids, duree, dist, d_plus, vitesse)
-    get_zone(valeur, ref, zones)
-    zones_actives(mode)
-    COULEURS_CAT, LEGENDE_UCI
+Pipeline complet :
+    1. Lissage léger (f=7) pour effacer le bruit GPS
+    2. Détection des sommets locaux significatifs
+    3. Pour chaque sommet, point de départ = inflexion de pente
+    4. Fusion des ascensions consécutives si descente inter < 15% du D+ combiné
+    5. Filtrage D+ >= 50m
+    6. Catégorisation UCI : Score = (D+ x pente_moy) / 100
 """
 
 import math
 import pandas as pd
 
 # ==============================================================================
-# CATÉGORISATION UCI OFFICIELLE
+# CATÉGORISATION UCI
 # ==============================================================================
 
 SEUILS_UCI = {
@@ -50,11 +45,17 @@ LEGENDE_UCI = (
     "🔵 4ème >=2 · 🟢 3ème >=8 · 🟡 2ème >=20 · 🟠 1ère >=40 · 🔴 HC >=80"
 )
 
-D_PLUS_MIN = 50
+D_PLUS_MIN   = 50     # m — D+ minimum pour qu'une montée soit considérée
+SEUIL_PENTE  = 1.0    # % — en dessous de cette pente on considère que la montée n'a pas commencé
+FENETRE_KM   = 2.0    # km — fenêtre de calcul de la pente moyenne
 
 
 def categoriser_uci(distance_m, d_plus):
-    if distance_m < 500 or d_plus < D_PLUS_MIN:
+    """
+    Catégorisation UCI : Score = (D+ x pente_moy) / 100.
+    Retourne (catégorie, score) ou (None, 0).
+    """
+    if distance_m < 300 or d_plus < D_PLUS_MIN:
         return None, 0.0
     pente_moy = (d_plus / distance_m) * 100
     if pente_moy < 2.0:
@@ -90,6 +91,7 @@ ZONES_FC = [
 
 
 def get_zone(valeur, ref, zones):
+    """Retourne (num_zone, label, couleur) selon le ratio valeur/ref."""
     ratio = valeur / ref if ref > 0 else 0
     for bas, haut, num, lbl, coul in zones:
         if bas <= ratio < haut:
@@ -98,6 +100,7 @@ def get_zone(valeur, ref, zones):
 
 
 def zones_actives(mode):
+    """Retourne la liste de zones selon le mode."""
     return ZONES_PUISSANCE if mode == "⚡ Puissance" else ZONES_FC
 
 
@@ -106,6 +109,7 @@ def zones_actives(mode):
 # ==============================================================================
 
 def estimer_watts(pente_pct, vitesse_plat_kmh, poids_kg=75):
+    """Puissance estimée en montée à la vitesse réelle."""
     g              = 9.81
     facteur        = 1.0 + pente_pct * 0.10
     vitesse_montee = max(5.0, vitesse_plat_kmh / facteur)
@@ -118,22 +122,23 @@ def estimer_watts(pente_pct, vitesse_plat_kmh, poids_kg=75):
 
 
 def estimer_fc(watts, ftp, fc_max, fc_repos=50):
+    """FC estimée depuis les watts. Calage FTP = 85% FC max."""
     if ftp <= 0 or fc_max <= 0:
         return None
-    watts_100pct_fc = ftp / 0.85
-    ratio           = min(watts / watts_100pct_fc, 0.97)
-    fc              = fc_repos + ratio * (fc_max - fc_repos)
+    ratio = min(watts / (ftp / 0.85), 0.97)
+    fc    = fc_repos + ratio * (fc_max - fc_repos)
     return int(min(fc_max - 3, max(fc_repos, fc)))
 
 
 def estimer_temps_col(dist_km, pente_moy_pct, vitesse_plat_kmh):
+    """Temps estimé (min) et vitesse de montée (km/h)."""
     facteur        = 1.0 + pente_moy_pct * 0.10
     vitesse_montee = max(5.0, vitesse_plat_kmh / facteur)
-    mins           = int((dist_km / vitesse_montee) * 60)
-    return mins, round(vitesse_montee, 1)
+    return int((dist_km / vitesse_montee) * 60), round(vitesse_montee, 1)
 
 
 def calculer_calories(poids_cycliste_kg, duree_sec, dist_m, d_plus_m, vitesse_kmh):
+    """Calories via MET adapté au cyclisme."""
     if poids_cycliste_kg <= 0 or duree_sec <= 0:
         return 0
     duree_h       = duree_sec / 3600
@@ -143,12 +148,11 @@ def calculer_calories(poids_cycliste_kg, duree_sec, dist_m, d_plus_m, vitesse_km
     elif vitesse_kmh < 25: met = 10.0
     elif vitesse_kmh < 30: met = 12.0
     else:                  met = 14.0
-    met = min(met + pente_globale * 0.8, 18.0)
-    return int(met * poids_cycliste_kg * duree_h)
+    return int(min(met + pente_globale * 0.8, 18.0) * poids_cycliste_kg * duree_h)
 
 
 # ==============================================================================
-# DÉTECTION DES ASCENSIONS
+# DÉTECTION — FONCTIONS INTERNES
 # ==============================================================================
 
 def _lisser(alts, f=7):
@@ -160,102 +164,154 @@ def _lisser(alts, f=7):
     return r
 
 
-def _pente_max(dists, alts, i0, i1, fenetre_m=100.0):
-    """Pente max sur une fenêtre glissante de fenetre_m mètres."""
-    pm = 0.0
-    for i in range(i0 + 1, i1 + 1):
-        for j in range(i - 1, max(i0 - 1, i - 200), -1):
-            dist_diff_m = (dists[i] - dists[j]) * 1000
-            if dist_diff_m >= fenetre_m:
-                pente = ((alts[i] - alts[j]) / dist_diff_m) * 100
-                if 0 < pente <= 40:
-                    pm = max(pm, pente)
-                break
-    return round(pm, 1)
+def _pente_sur_fenetre(dists, alts, idx, fenetre_km):
+    """Pente moyenne (%) calculée sur une fenêtre de fenetre_km avant idx."""
+    for j in range(idx - 1, -1, -1):
+        dist_m = (dists[idx] - dists[j]) * 1000
+        if dist_m >= fenetre_km * 1000:
+            return (alts[idx] - alts[j]) / dist_m * 100
+    return 0.0
 
 
-def _construire_segments(dists, alts_lisses):
+def _trouver_depart_inflexion(dists, alts, borne_gauche, sommet_idx):
     """
-    Détecte les segments montants bruts.
-    Démarre quand gain > 8m depuis le dernier creux.
-    Se termine quand descente > max(15m, min(60m, D+*20%)) depuis le sommet.
-    """
-    SEUIL_DEBUT = 8
-    segments    = []
-    en_montee   = False
-    creux_idx   = 0
-    sommet_idx  = 0
+    Trouve le point de départ de la montée par inflexion de pente.
 
-    for i in range(1, len(alts_lisses)):
+    On remonte depuis le sommet et on cherche le dernier point où la pente
+    (calculée sur FENETRE_KM en arrière) passe sous SEUIL_PENTE.
+
+    Si on ne trouve pas d'inflexion claire, on retourne le creux absolu
+    dans la fenêtre de recherche.
+
+    Args:
+        borne_gauche : index de début de la zone de recherche
+        sommet_idx   : index du sommet
+
+    Returns:
+        Index du point de départ.
+    """
+    # Calcule la pente glissante sur tout le segment
+    pentes = [
+        (i, _pente_sur_fenetre(dists, alts, i, FENETRE_KM))
+        for i in range(borne_gauche, sommet_idx + 1)
+    ]
+
+    if not pentes:
+        return borne_gauche
+
+    # Remonte depuis le sommet — cherche le dernier passage sous SEUIL_PENTE
+    for k in range(len(pentes) - 1, 0, -1):
+        idx, p = pentes[k]
+        if p < SEUIL_PENTE:
+            return idx
+
+    # Pas d'inflexion trouvée → creux absolu (fallback)
+    return min(range(borne_gauche, sommet_idx), key=lambda i: alts[i])
+
+
+def _detecter_sommets(dists, alts_lisses):
+    """
+    Trouve les sommets locaux significatifs du profil.
+    Un sommet est retenu si on descend ensuite de plus de MARGE depuis lui.
+    MARGE adaptive : 8% du D+ depuis le dernier creux, min 20m.
+    """
+    n         = len(alts_lisses)
+    sommets   = []
+    en_montee = False
+    creux_idx = 0
+    som_idx   = 0
+
+    for i in range(1, n):
         a = alts_lisses[i]
         if not en_montee:
             if a < alts_lisses[creux_idx]:
                 creux_idx = i
-            elif a >= alts_lisses[creux_idx] + SEUIL_DEBUT:
-                en_montee  = True
-                sommet_idx = i
+            elif a >= alts_lisses[creux_idx] + 10:
+                en_montee = True
+                som_idx   = i
         else:
-            if a > alts_lisses[sommet_idx]:
-                sommet_idx = i
+            if a > alts_lisses[som_idx]:
+                som_idx = i
             else:
-                d_plus_c  = alts_lisses[sommet_idx] - alts_lisses[creux_idx]
-                seuil_fin = max(15.0, min(60.0, d_plus_c * 0.20))
-                if a <= alts_lisses[sommet_idx] - seuil_fin:
-                    segments.append((creux_idx, sommet_idx))
-                    en_montee  = False
-                    creux_idx  = i
-                    sommet_idx = i
+                d_plus_c  = alts_lisses[som_idx] - alts_lisses[creux_idx]
+                marge     = max(20.0, d_plus_c * 0.08)
+                if a <= alts_lisses[som_idx] - marge:
+                    sommets.append((creux_idx, som_idx))
+                    en_montee = False
+                    creux_idx = i
+                    som_idx   = i
 
-    if en_montee and sommet_idx > creux_idx:
-        segments.append((creux_idx, sommet_idx))
+    if en_montee and som_idx > creux_idx:
+        sommets.append((creux_idx, som_idx))
 
-    return segments
+    return sommets
 
 
-def _fusionner_segments(segments, alts_lisses):
+def _fusionner(sommets, alts_lisses):
     """
-    Fusionne les segments consécutifs dont la descente intermédiaire
-    est inférieure à 15% du D+ combiné — gère les cols avec replat.
+    Fusionne les ascensions consécutives dont la descente intermédiaire
+    est < 15% du D+ combiné (col avec replat ou courte descente).
     """
-    SEUIL_FUSION = 0.15
-
-    if not segments:
+    if not sommets:
         return []
 
-    fusionnes = [list(segments[0])]
+    fusionnes = [list(sommets[0])]
 
-    for debut, sommet in segments[1:]:
-        prev_debut, prev_sommet = fusionnes[-1]
-
-        descente_inter = alts_lisses[prev_sommet] - alts_lisses[debut]
+    for creux, sommet in sommets[1:]:
+        prev_creux, prev_sommet = fusionnes[-1]
+        descente_inter = alts_lisses[prev_sommet] - alts_lisses[creux]
         d_plus_combine = (
-            (alts_lisses[prev_sommet] - alts_lisses[prev_debut]) +
-            (alts_lisses[sommet]      - alts_lisses[debut])
+            (alts_lisses[prev_sommet] - alts_lisses[prev_creux]) +
+            (alts_lisses[sommet]      - alts_lisses[creux])
         )
-
-        if 0 < descente_inter < d_plus_combine * SEUIL_FUSION:
-            nouveau_sommet = (
+        if 0 < descente_inter < d_plus_combine * 0.15:
+            # Fusion : même montée
+            nouveau_som = (
                 sommet if alts_lisses[sommet] >= alts_lisses[prev_sommet]
                 else prev_sommet
             )
-            fusionnes[-1] = [prev_debut, nouveau_sommet]
+            fusionnes[-1] = [prev_creux, nouveau_som]
         else:
-            fusionnes.append([debut, sommet])
+            fusionnes.append([creux, sommet])
 
     return [tuple(s) for s in fusionnes]
 
+
+def _pente_max(dists, alts, i0, i1, fenetre_m=100.0):
+    """Pente maximale sur une fenêtre glissante de fenetre_m mètres."""
+    pm = 0.0
+    for i in range(i0 + 1, i1 + 1):
+        for j in range(i - 1, max(i0 - 1, i - 200), -1):
+            dist_m = (dists[i] - dists[j]) * 1000
+            if dist_m >= fenetre_m:
+                p = ((alts[i] - alts[j]) / dist_m) * 100
+                if 0 < p <= 40:
+                    pm = max(pm, p)
+                break
+    return round(pm, 1)
+
+
+# ==============================================================================
+# DÉTECTION — FONCTION PRINCIPALE
+# ==============================================================================
 
 def detecter_ascensions(df):
     """
     Détecte et catégorise les ascensions dans un profil altimétrique.
 
-    Pipeline : lissage -> segments bruts -> fusion -> filtrage -> UCI
+    Pipeline :
+        1. Lissage
+        2. Détection des sommets locaux
+        3. Fusion des ascensions avec replat intermédiaire
+        4. Point de départ par inflexion de pente (remonte depuis le sommet)
+        5. Filtrage D+ >= 50m + catégorisation UCI
 
     Args:
-        df: DataFrame avec colonnes "Distance (km)" et "Altitude (m)".
+        df : DataFrame avec colonnes "Distance (km)" et "Altitude (m)".
 
     Returns:
-        Liste de dicts triée par position. Clés internes préfixées par _.
+        Liste de dicts triée par position sur le parcours.
+        Clés internes préfixées par _.
     """
     if df.empty or len(df) < 5:
         return []
@@ -264,11 +320,19 @@ def detecter_ascensions(df):
     dists       = df["Distance (km)"].tolist()
     alts_lisses = _lisser(alts_raw)
 
-    segments = _construire_segments(dists, alts_lisses)
-    segments = _fusionner_segments(segments, alts_lisses)
+    # Étape 1 : sommets + fusion
+    sommets  = _detecter_sommets(dists, alts_lisses)
+    sommets  = _fusionner(sommets, alts_lisses)
 
     ascensions = []
-    for debut_idx, sommet_idx in segments:
+    for k, (creux_idx, sommet_idx) in enumerate(sommets):
+        # Étape 2 : point de départ par inflexion de pente
+        # Borne gauche = sommet de l'ascension précédente (ou début du parcours)
+        borne_gauche = sommets[k-1][1] if k > 0 else 0
+        debut_idx    = _trouver_depart_inflexion(
+            dists, alts_lisses, borne_gauche, sommet_idx
+        )
+
         dk = dists[sommet_idx] - dists[debut_idx]
         dp = alts_raw[sommet_idx] - alts_raw[debut_idx]
 
