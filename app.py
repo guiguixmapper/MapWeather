@@ -1,3 +1,5 @@
+# --- FICHIER : app.py ---
+
 """
 🚴‍♂️ Vélo & Météo — Interface propre et native
 ======================================================================
@@ -244,92 +246,83 @@ def creer_carte(points_gpx, resultats, ascensions, points_eau, tiles="CartoDB po
     fg_eau   = folium.FeatureGroup(name="💧 Points d'eau", show=True)
     fg_trace = folium.FeatureGroup(name="📍 Parcours",   show=True)
     
-    # Ligne du parcours
+    # 1. La ligne du parcours
     folium.PolyLine([[p.latitude, p.longitude] for p in points_gpx],
-                    color="#2563eb", weight=5, opacity=0.9).add_to(fg_trace)
-    
+                    color="#2563eb", weight=4, opacity=0.8).add_to(fg_trace)
+                    
+    # Fonction de style pour créer de belles pastilles HTML au lieu des gros marqueurs
+    def html_icon(icone, couleur_bg):
+        return f"""
+        <div style="background-color:{couleur_bg}; color:white; border-radius:50%; 
+                    width:26px; height:26px; display:flex; align-items:center; 
+                    justify-content:center; font-size:14px; border:2px solid white; 
+                    box-shadow:0 2px 4px rgba(0,0,0,0.3);">
+            {icone}
+        </div>"""
+
     # Départ / Arrivée
-    folium.Marker([points_gpx[0].latitude, points_gpx[0].longitude], tooltip="🚦 Départ",
-                  icon=folium.Icon(color="green", icon="play", prefix="fa")).add_to(fg_trace)
-    folium.Marker([points_gpx[-1].latitude, points_gpx[-1].longitude], tooltip="🏁 Arrivée",
-                  icon=folium.Icon(color="red", icon="flag", prefix="fa")).add_to(fg_trace)
-    
-    # Points d'eau
+    folium.Marker([points_gpx[0].latitude, points_gpx[0].longitude], tooltip="Départ",
+                  icon=folium.DivIcon(html=html_icon("🟢", "#10b981"))).add_to(fg_trace)
+    folium.Marker([points_gpx[-1].latitude, points_gpx[-1].longitude], tooltip="Arrivée",
+                  icon=folium.DivIcon(html=html_icon("🏁", "#ef4444"))).add_to(fg_trace)
+
+    # 2. Points d'eau
     if points_eau:
         for eau in points_eau:
             folium.Marker([eau["lat"], eau["lon"]], tooltip=f"💧 {eau['nom']}",
-                          icon=folium.Icon(color="lightblue", icon="tint")).add_to(fg_eau)
+                          icon=folium.DivIcon(html=html_icon("💧", "#0ea5e9"))).add_to(fg_eau)
 
-    # Ascensions (Popups détaillés)
-    COULEUR_COL = {"🔴 HC":"red","🟠 1ère Cat.":"orange",
-                   "🟡 2ème Cat.":"beige","🟢 3ème Cat.":"green","🔵 4ème Cat.":"blue"}
-    
+    # 3. Ascensions (Popups détaillés)
+    COULEUR_COL = {"🔴 HC":"#dc2626","🟠 1ère Cat.":"#f97316","🟡 2ème Cat.":"#eab308","🟢 3ème Cat.":"#22c55e","🔵 4ème Cat.":"#3b82f6"}
     for asc in ascensions:
         lat_s = asc.get("_lat_sommet")
         lon_s = asc.get("_lon_sommet")
-        if lat_s is None or lon_s is None:
-            continue
-        nom     = asc.get("Nom", "—")
-        coul    = COULEUR_COL.get(asc["Catégorie"], "blue")
+        if lat_s is None or lon_s is None: continue
+        
+        coul = COULEUR_COL.get(asc["Catégorie"], "#3b82f6")
+        nom = asc.get("Nom", "—")
         alt_osm = asc.get("Nom OSM alt")
-        alt_line = (f'<div>⛰️ Sommet GPX : {asc["Alt. sommet"]}'
-                    + (f' &nbsp;·&nbsp; OSM : {alt_osm} m' if alt_osm else '') + '</div>')
+        
+        # Le contenu texte au clic
+        alt_line = (f'<div>⛰️ Sommet GPX : {asc["Alt. sommet"]}' + (f' &nbsp;·&nbsp; OSM : {alt_osm} m' if alt_osm else '') + '</div>')
         popup_col = (
             '<div style="font-family:sans-serif;font-size:12px;min-width:180px">'
             f'<div style="font-weight:700;font-size:14px;margin-bottom:6px">'
             f'{nom+" — " if nom != "—" else ""}{asc["Catégorie"]}</div>'
             f'<div>📏 {asc["Longueur"]} &nbsp;·&nbsp; D+ {asc["Dénivelé"]}</div>'
             f'<div>📐 {asc["Pente moy."]} moy. &nbsp;·&nbsp; {asc["Pente max"]} max</div>'
-            + alt_line
-            + (f'<div style="margin-top:5px">⏱️ {asc.get("Temps col","—")} &nbsp;·&nbsp; arr. {asc.get("Arrivée sommet","—")}</div>'
-               if asc.get("Temps col") else "")
-            + '</div>')
+            + alt_line + '</div>')
+            
         folium.Marker([lat_s, lon_s],
             popup=folium.Popup(popup_col, max_width=260),
             tooltip=folium.Tooltip(f'▲ {nom if nom != "—" else asc["Catégorie"]} — {asc["Alt. sommet"]}', sticky=True),
-            icon=folium.Icon(color=coul, icon="chevron-up", prefix="fa")).add_to(fg_cols)
+            icon=folium.DivIcon(html=html_icon("🏔️", coul))).add_to(fg_cols)
             
-    # Météo (Popups détaillés avec flèches de vent)
+    # 4. Météo (Bulle affichant directement la température sur la carte)
     for cp in resultats:
         t = cp.get("temp_val")
         if t is None: continue
-        dd = cp.get("dir_deg"); vv = cp.get("vent_val", 0) or 0
-        fc  = "#ef4444" if vv>=40 else "#f97316" if vv>=25 else "#eab308" if vv>=10 else "#22c55e"
-        rot = (dd + 180) % 360 if dd is not None else 0
-        svg = (f'<svg width="16" height="16" viewBox="0 0 28 28" style="vertical-align:middle">'
-               f'<g transform="rotate({rot},14,14)"><polygon points="14,2 20,22 14,18 8,22" fill="{fc}"/>'
-               f'</g></svg>') if dd is not None else "💨"
-        pp = cp.get("pluie_pct")
-        if pp is not None:
-            pc    = "#1d4ed8" if pp>=70 else "#2563eb" if pp>=40 else "#60a5fa"
-            barre = (f'<div style="margin:4px 0 2px;font-size:11px">&#127783; Pluie : <b>{pp}%</b></div>'
-                     '<div style="background:#e2e8f0;border-radius:4px;height:6px;width:100%">'
-                     f'<div style="background:{pc};width:{pp}%;height:6px;border-radius:4px"></div></div>')
-        else:
-            barre = '<div style="font-size:11px">&#127783; Pluie : —</div>'
-        res    = cp.get("ressenti")
-        popup  = (
-            '<div style="font-family:sans-serif;font-size:12px;min-width:200px">'
-            f'<div style="font-weight:700;font-size:13px;border-bottom:1px solid #e2e8f0;'
-            f'padding-bottom:4px;margin-bottom:6px">{cp["Heure"]} — Km {cp["Km"]}</div>'
-            f'<div style="color:#6b7280;margin-bottom:5px">⛰️ Alt : {cp["Alt (m)"]} m</div>'
-            f'<div style="font-size:15px;margin-bottom:3px">{cp["Ciel"]} <b>{t}°C</b>'
-            + (f' <span style="color:#6b7280;font-size:11px">(ressenti {res}°C)</span>' if res else "")
-            + f'</div>{barre}'
-            f'<div style="margin-top:7px;padding-top:5px;border-top:1px solid #f1f5f9">'
-            f'<div style="display:flex;align-items:center;gap:5px;margin-bottom:2px">'
-            f'{svg} <b>{vv} km/h</b> <span style="color:#6b7280">du {cp["Dir"]}</span></div>'
-            f'<div style="color:#6b7280;font-size:11px">Rafales : {cp.get("rafales_val","—")} km/h</div>'
-            f'<div style="margin-top:3px;font-size:11px">🚴 <b>{cp.get("effet","—")}</b></div>'
-            '</div></div>')
+        
+        coul_temp = "#8b5cf6" if t<5 else "#3b82f6" if t<15 else "#22c55e" if t<22 else "#f97316" if t<30 else "#ef4444"
+        icon_meteo_html = f"""
+        <div style="background-color:{coul_temp}; color:white; border-radius:12px; 
+                    padding:2px 6px; font-size:11px; font-weight:bold; border:1px solid white; 
+                    box-shadow:0 1px 3px rgba(0,0,0,0.3); text-align:center;">
+            {t}°
+        </div>"""
+        
+        vv = cp.get("vent_val", 0) or 0
+        pp = cp.get("pluie_pct", 0) or 0
+        
+        # Popup météo
+        popup = (f'<div style="font-family:sans-serif;font-size:12px;min-width:150px">'
+                 f'<b>{cp["Heure"]} — Km {cp["Km"]}</b><br>{cp["Ciel"]} <b>{t}°C</b><br>'
+                 f'💨 Vent {vv} km/h {cp["Dir"]}<br>☔ Pluie {pp}%</div>')
+                 
         folium.Marker([cp["lat"], cp["lon"]],
-            popup=folium.Popup(popup, max_width=280),
-            tooltip=folium.Tooltip(
-                f"{cp['Heure']} | {cp['Ciel']} {t}°C | "
-                f'<svg width="12" height="12" viewBox="0 0 28 28" style="vertical-align:middle">'
-                f'<g transform="rotate({rot},14,14)"><polygon points="14,2 20,22 14,18 8,22" fill="{fc}"/></g></svg>'
-                f" {vv} km/h", sticky=True),
-            icon=folium.Icon(color="blue", icon="info-sign")).add_to(fg_meteo)
+            popup=folium.Popup(popup, max_width=200),
+            tooltip=f"{cp['Heure']} | {cp['Ciel']} | 💨 {vv} km/h",
+            icon=folium.DivIcon(html=icon_meteo_html)).add_to(fg_meteo)
 
     fg_trace.add_to(carte)
     fg_eau.add_to(carte)
@@ -338,22 +331,10 @@ def creer_carte(points_gpx, resultats, ascensions, points_eau, tiles="CartoDB po
 
     folium.LayerControl(collapsed=False, position="topright").add_to(carte)
 
+    # Petit CSS pour que le menu des calques soit joli
     css_legende = """
     <style>
-    .leaflet-control-layers {
-        border-radius: 10px !important;
-        border: none !important;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.15) !important;
-        padding: 0 !important;
-        overflow: hidden;
-        font-family: Arial, sans-serif !important;
-    }
-    .leaflet-control-layers-expanded { padding: 10px 14px !important; min-width: 160px !important; }
-    .leaflet-control-layers-list { margin: 0 !important; }
-    .leaflet-control-layers label { display: flex !important; align-items: center !important; gap: 6px !important; font-size: 13px !important; color: #1e293b !important; margin: 4px 0 !important; cursor: pointer !important; }
-    .leaflet-control-layers-separator { display: none !important; }
-    .leaflet-control-layers-overlays { display: flex !important; flex-direction: column !important; gap: 2px !important; }
-    .leaflet-control-layers-expanded::before { content: "🗺️ Calques"; display: block; font-weight: 700; font-size: 11px; color: #64748b; letter-spacing: .5px; text-transform: uppercase; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #e2e8f0; }
+    .leaflet-control-layers { border-radius: 10px !important; border: none !important; box-shadow: 0 2px 8px rgba(0,0,0,0.15) !important; font-family: Arial, sans-serif !important; }
     </style>
     """
     carte.get_root().html.add_child(folium.Element(css_legende))
