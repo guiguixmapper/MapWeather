@@ -3,6 +3,7 @@ import logging
 import streamlit as st
 import math
 import time
+import copy
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +15,6 @@ def distance_haversine(lat1, lon1, lat2, lon2):
     a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2) * math.sin(dlambda/2)**2
     return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
-# On a renommé la fonction pour forcer l'effacement du cache buggé !
 @st.cache_data(ttl=86400, show_spinner=False)
 def enrichir_cols_v2(ascensions, coords_gpx): 
     if not ascensions: return ascensions
@@ -69,7 +69,6 @@ def enrichir_cols_v2(ascensions, coords_gpx):
             meilleur_nom, meilleure_dist, ele_osm = None, float('inf'), None
             for c in cols_osm:
                 dist = distance_haversine(lat_a, lon_a, c["lat"], c["lon"])
-                # On scanne jusqu'à 2.5 km autour du sommet !
                 if dist < 2500 and dist < meilleure_dist:
                     meilleure_dist = dist
                     meilleur_nom = c["nom"]
@@ -78,7 +77,8 @@ def enrichir_cols_v2(ascensions, coords_gpx):
                 asc["Nom"] = meilleur_nom
                 asc["Nom OSM alt"] = ele_osm
                 
-    return ascensions_enrichies
+    # On renvoie une copie propre pour ne pas corrompre le cache de Streamlit
+    return copy.deepcopy(ascensions_enrichies)
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def recuperer_points_eau(coords_gpx):
@@ -115,4 +115,4 @@ def recuperer_points_eau(coords_gpx):
     except Exception as e:
         logger.warning(f"Overpass (Eau) échoué: {e}")
         
-    return points_eau_valides
+    return copy.deepcopy(points_eau_valides)
