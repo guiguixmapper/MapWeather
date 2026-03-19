@@ -1,5 +1,5 @@
 """
-🚴‍♂️ Vélo & Météo — V15.1 (Correction UX et Variables)
+🚴‍♂️ Vélo & Météo — V15.2 (Correction UX Bandeau, Calories et Segments Cols)
 ======================================================================
 """
 import streamlit as st
@@ -230,7 +230,7 @@ def optimiser_depart(checkpoints_base, rep_list, ascensions, d_plus, vitesse, re
 
 
 # ==============================================================================
-# CARTE (RESTAURÉE AVEC LES POP-UPS DÉTAILLÉS DE LA V10)
+# CARTE 
 # ==============================================================================
 
 def creer_carte(points_gpx, resultats, ascensions, points_eau, tiles="CartoDB positron", attr=None):
@@ -598,8 +598,6 @@ def main():
         with st.spinner("📡 Récupération météo et air..."):
             air_quality = recuperer_qualite_air(coords_gpx[0][0], coords_gpx[0][1], date_dep.strftime("%Y-%m-%d"))
             frozen = tuple((cp["lat"], cp["lon"], cp["Heure_API"]) for cp in checkpoints)
-            
-            # Gestion d'erreur locale au cas où
             try:
                 rep_list = recuperer_meteo_batch(frozen, is_past=is_past, date_str=date_dep.strftime("%Y-%m-%d"))
                 if rep_list is None:
@@ -639,58 +637,55 @@ def main():
         asc["Temps col"] = f"{mins_col} min ({vit_col} km/h)"
         asc["Arrivée sommet"] = heure_sommet.strftime("%H:%M")
 
-    # ── AFFICHAGE HAUT DE PAGE ──
-    st.markdown(f"""
-    <div style="background:linear-gradient(135deg,#1e3a5f,#1e40af);border-radius:12px;
-                padding:16px 24px;color:white;margin:12px 0;
-                display:flex;align-items:center;gap:0;flex-wrap:wrap">
-      <div style="min-width:160px;padding-right:24px;border-right:1px solid rgba(255,255,255,0.25)">
+    # ── AFFICHAGE HAUT DE PAGE CORRIGÉ ──
+    html_header = f"""
+    <div style="background:linear-gradient(135deg,#1e3a5f,#1e40af);border-radius:12px;padding:16px 24px;color:white;margin:12px 0;display:flex;align-items:center;gap:15px;flex-wrap:wrap;">
+      <div style="min-width:160px;padding-right:20px;border-right:1px solid rgba(255,255,255,0.25);">
         <div style="font-size:2.8rem;font-weight:900;line-height:1">{score['total']}<span style="font-size:1.2rem">/10</span></div>
-        <div style="font-size:.95rem;font-weight:600;margin-top:2px">{score['label']}</div>
-        <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
+        <div style="font-size:.95rem;font-weight:600;margin-top:4px">{score['label']}</div>
+        <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
           <span style="background:rgba(255,255,255,.2);border-radius:20px;padding:3px 10px;font-size:.75rem">🌤️ {score['score_meteo']}/6</span>
           <span style="background:rgba(255,255,255,.2);border-radius:20px;padding:3px 10px;font-size:.75rem">🏔️ {score['score_cols']}/4</span>
           {"<span style='background:#f59e0b;border-radius:20px;padding:3px 10px;font-size:.75rem'>⏳ HISTO</span>" if is_past else ""}
         </div>
       </div>
-      <div style="display:flex;gap:0;flex:1;flex-wrap:wrap;padding-left:8px">
-        <div style="flex:1;min-width:90px;text-align:center;padding:6px 12px;border-right:1px solid rgba(255,255,255,0.2)">
-          <div style="font-size:1.9rem;font-weight:800">{round(dist_tot/1000,1)}</div>
-          <div style="font-size:.9rem;color:rgba(255,255,255,0.85)">km</div>
-          <div style="font-size:.75rem;color:rgba(255,255,255,0.6)">📏 Distance</div>
+      <div style="display:flex;gap:15px;flex:1;flex-wrap:wrap;justify-content:space-around;">
+        <div style="text-align:center;min-width:80px;">
+          <div style="font-size:1.8rem;font-weight:800">{round(dist_tot/1000,1)}</div>
+          <div style="font-size:.85rem;color:rgba(255,255,255,0.85)">km</div>
         </div>
-        <div style="flex:1;min-width:90px;text-align:center;padding:6px 12px;border-right:1px solid rgba(255,255,255,0.2)">
-          <div style="font-size:1.9rem;font-weight:800">{int(d_plus)}</div>
-          <div style="font-size:.9rem;color:rgba(255,255,255,0.85)">m</div>
-          <div style="font-size:.75rem;color:rgba(255,255,255,0.6)">⬆️ D+</div>
+        <div style="text-align:center;min-width:80px;">
+          <div style="font-size:1.8rem;font-weight:800">{int(d_plus)}</div>
+          <div style="font-size:.85rem;color:rgba(255,255,255,0.85)">m (D+)</div>
         </div>
-        <div style="flex:1;min-width:90px;text-align:center;padding:6px 12px;border-right:1px solid rgba(255,255,255,0.2)">
-          <div style="font-size:1.9rem;font-weight:800">{int(d_moins)}</div>
-          <div style="font-size:.9rem;color:rgba(255,255,255,0.85)">m</div>
-          <div style="font-size:.75rem;color:rgba(255,255,255,0.6)">⬇️ D−</div>
+        <div style="text-align:center;min-width:80px;">
+          <div style="font-size:1.8rem;font-weight:800">{int(d_moins)}</div>
+          <div style="font-size:.85rem;color:rgba(255,255,255,0.85)">m (D-)</div>
         </div>
-        <div style="flex:1;min-width:90px;text-align:center;padding:6px 12px;border-right:1px solid rgba(255,255,255,0.2)">
-          <div style="font-size:1.9rem;font-weight:800">{dh}h{dm:02d}</div>
-          <div style="font-size:.9rem;color:rgba(255,255,255,0.85)">min</div>
-          <div style="font-size:.75rem;color:rgba(255,255,255,0.6)">⏱️ Durée</div>
+        <div style="text-align:center;min-width:80px;">
+          <div style="font-size:1.8rem;font-weight:800">{dh}h{dm:02d}</div>
+          <div style="font-size:.85rem;color:rgba(255,255,255,0.85)">Durée</div>
         </div>
-        <div style="flex:1;min-width:110px;text-align:center;padding:6px 12px;border-right:1px solid rgba(255,255,255,0.2)">
-          <div style="font-size:1.9rem;font-weight:800;color:#34d399">{vit_moy_reelle}</div>
-          <div style="font-size:.9rem;color:rgba(255,255,255,0.85)">km/h</div>
-          <div style="font-size:.75rem;color:rgba(255,255,255,0.6)">🚴 Moy. Réelle</div>
+        <div style="text-align:center;min-width:80px;">
+          <div style="font-size:1.8rem;font-weight:800;color:#34d399">{vit_moy_reelle}</div>
+          <div style="font-size:.85rem;color:rgba(255,255,255,0.85)">km/h (Moy.)</div>
         </div>
-        <div style="flex:1;min-width:90px;text-align:center;padding:6px 12px;border-right:1px solid rgba(255,255,255,0.2)">
-          <div style="font-size:1.9rem;font-weight:800">{heure_arr.strftime('%H:%M')}</div>
-          <div style="font-size:.9rem;color:rgba(255,255,255,0.85)">&nbsp;</div>
-          <div style="font-size:.75rem;color:rgba(255,255,255,0.6)">🏁 Arrivée</div>
+        <div style="text-align:center;min-width:80px;">
+          <div style="font-size:1.8rem;font-weight:800">{heure_arr.strftime('%H:%M')}</div>
+          <div style="font-size:.85rem;color:rgba(255,255,255,0.85)">Arrivée</div>
         </div>
-        <div style="flex:1;min-width:90px;text-align:center;padding:6px 12px;border-left:1px solid rgba(255,255,255,0.2)">
-          <div style="font-size:1.9rem;font-weight:800">{len(points_eau)} 💧</div>
-          <div style="font-size:.9rem;color:rgba(255,255,255,0.85)">points d'eau</div>
-          <div style="font-size:.75rem;color:rgba(255,255,255,0.6)">Ravitaillement</div>
+        <div style="text-align:center;min-width:80px;">
+          <div style="font-size:1.8rem;font-weight:800">{calories}</div>
+          <div style="font-size:.85rem;color:rgba(255,255,255,0.85)">kcal</div>
+        </div>
+        <div style="text-align:center;min-width:80px;">
+          <div style="font-size:1.8rem;font-weight:800">{len(points_eau)} 💧</div>
+          <div style="font-size:.85rem;color:rgba(255,255,255,0.85)">Points d'eau</div>
         </div>
       </div>
-    </div>""", unsafe_allow_html=True)
+    </div>
+    """
+    st.markdown(html_header, unsafe_allow_html=True)
 
     # Optimiseur de départ interactif
     if not is_past and not err_meteo:
@@ -754,6 +749,7 @@ def main():
         for j, (_, _, num, lbl, coul) in enumerate(zones_actives(mode)):
             cols_z[j].markdown(f'<div style="background:{coul};color:white;border-radius:6px;padding:6px;text-align:center;font-size:.72rem"><b>{lbl}</b></div>', unsafe_allow_html=True)
 
+
     with tab_meteo:
         if err_meteo: st.warning("⚠️ Météo indisponible.")
         else:
@@ -786,13 +782,26 @@ def main():
             cols_aff = ["Catégorie","Nom","Départ (km)","Sommet (km)","Longueur","Dénivelé","Pente moy.","Pente max","Alt. sommet","Puissance","Effort val","Zone"]
             st.dataframe(pd.DataFrame(ascensions)[cols_aff], width='stretch', hide_index=True)
             st.divider()
+            
+            # --- CURSEUR RESTAURÉ ICI ---
             st.subheader("🔍 Profil détaillé d'une montée")
             noms_cols = [f"{a.get('Nom','') + ' — ' if a.get('Nom','—') != '—' else ''}{a['Catégorie']} — Km {a['Départ (km)']}→{a['Sommet (km)']}" for a in ascensions]
             col_choix = st.selectbox("Choisir une montée :", options=noms_cols, index=0)
             asc_sel = ascensions[noms_cols.index(col_choix)]
+            
+            dk_sel = asc_sel["_sommet_km"] - asc_sel["_debut_km"]
+            seg_defaut = 0.5 if dk_sel < 5 else 1.0 if dk_sel < 15 else 2.0
+            col_ctrl1, col_ctrl2 = st.columns([3, 1])
+            with col_ctrl1:
+                seg_km = st.slider("Longueur des segments (km)", 0.25, min(5.0, dk_sel / 2), float(seg_defaut), 0.25)
+            with col_ctrl2:
+                nb_segs = max(2, int(dk_sel / seg_km))
+                st.metric("Segments", nb_segs)
+                
             if not df_profil.empty:
-                fig_col = creer_figure_col(df_profil, asc_sel)
+                fig_col = creer_figure_col(df_profil, asc_sel, nb_segments=nb_segs)
                 if fig_col: st.plotly_chart(fig_col, width='stretch')
+                st.markdown("**Intensité de pente :** 🟢 <3% · 🟡 3–6% · 🟠 6–8% · 🔴 8–12% · 🟤 >12%")
         else:
             st.success("🚴‍♂️ Aucune difficulté majeure détectée.")
 
