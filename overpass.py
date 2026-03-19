@@ -14,10 +14,10 @@ def distance_haversine(lat1, lon1, lat2, lon2):
     return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 @st.cache_data(ttl=86400, show_spinner=False)
-def enrichir_cols(ascensions, points_gpx):
+def enrichir_cols(ascensions, coords_gpx): # <-- Utilise les coordonnées simples
     if not ascensions: return ascensions
-    lats = [p.latitude for p in points_gpx]
-    lons = [p.longitude for p in points_gpx]
+    lats = [lat for lat, lon in coords_gpx]
+    lons = [lon for lat, lon in coords_gpx]
     s, n = min(lats) - 0.02, max(lats) + 0.02
     w, e = min(lons) - 0.02, max(lons) + 0.02
 
@@ -38,7 +38,6 @@ def enrichir_cols(ascensions, points_gpx):
                 if nom:
                     cols_osm.append({"lat": node["lat"], "lon": node["lon"], "nom": nom, "ele": ele})
             
-            # Association
             for asc in ascensions:
                 lat_a, lon_a = asc.get("_lat_sommet"), asc.get("_lon_sommet")
                 if not lat_a or not lon_a: continue
@@ -57,14 +56,14 @@ def enrichir_cols(ascensions, points_gpx):
     return ascensions
 
 @st.cache_data(ttl=86400, show_spinner=False)
-def recuperer_points_eau(points_gpx):
+def recuperer_points_eau(coords_gpx): # <-- Utilise les coordonnées simples
     """Trouve les points d'eau potable à proximité du parcours (< 150m)"""
-    if not points_gpx: return []
-    lats = [p.latitude for p in points_gpx]
-    lons = [p.longitude for p in points_gpx]
+    if not coords_gpx: return []
+    lats = [lat for lat, lon in coords_gpx]
+    lons = [lon for lat, lon in coords_gpx]
     
-    # Échantillonnage pour accélérer le calcul (1 point sur 20)
-    pts_echantillon = points_gpx[::20] 
+    # Échantillonnage pour accélérer (1 point sur 20)
+    pts_echantillon = coords_gpx[::20] 
 
     s, n = min(lats) - 0.01, max(lats) + 0.01
     w, e = min(lons) - 0.01, max(lons) + 0.01
@@ -87,12 +86,11 @@ def recuperer_points_eau(points_gpx):
             data = response.json()
             for node in data.get("elements", []):
                 lat_w, lon_w = node["lat"], node["lon"]
-                # Vérifie si le point d'eau est à moins de 150m du tracé
-                for p in pts_echantillon:
-                    if distance_haversine(lat_w, lon_w, p.latitude, p.longitude) < 150:
+                for lat_p, lon_p in pts_echantillon:
+                    if distance_haversine(lat_w, lon_w, lat_p, lon_p) < 150:
                         nom = node.get("tags", {}).get("name", "Point d'eau")
                         points_eau_valides.append({"lat": lat_w, "lon": lon_w, "nom": nom})
-                        break # Passe au point d'eau suivant
+                        break
     except Exception as e:
         logger.warning(f"Overpass (Eau) échoué: {e}")
         
