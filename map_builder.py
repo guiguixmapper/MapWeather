@@ -80,15 +80,17 @@ def creer_carte(points_gpx, resultats, ascensions, points_eau, tiles="CartoDB po
         
         vv = cp.get("vent_val", 0) or 0
         pp = cp.get("pluie_pct", 0) or 0
+        direction_vent = cp.get("Dir", "") # On récupère la direction (ex: "NE", "S")
         
-        # Popup météo
+        # Popup météo (au clic)
         popup = (f'<div style="font-family:sans-serif;font-size:12px;min-width:150px">'
                  f'<b>{cp["Heure"]} — Km {cp["Km"]}</b><br>{cp["Ciel"]} <b>{t}°C</b><br>'
-                 f'💨 Vent {vv} km/h {cp["Dir"]}<br>☔ Pluie {pp}%</div>')
+                 f'💨 Vent {vv} km/h {direction_vent}<br>☔ Pluie {pp}%</div>')
                  
+        # Tooltip (au survol) - Corrigé avec la direction du vent !
         folium.Marker([cp["lat"], cp["lon"]],
             popup=folium.Popup(popup, max_width=200),
-            tooltip=f"{cp['Heure']} | {cp['Ciel']} | 💨 {vv} km/h",
+            tooltip=f"{cp['Heure']} | {cp['Ciel']} | 💨 {vv} km/h {direction_vent}",
             icon=folium.DivIcon(html=icon_meteo_html)).add_to(fg_meteo)
 
     fg_trace.add_to(carte)
