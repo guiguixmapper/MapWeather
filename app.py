@@ -156,10 +156,13 @@ def main():
     points_gpx = parser_gpx(fichier.read())
     if not points_gpx: return
 
+    # On transforme les objets complexes GPX en simple liste (Lat, Lon) pour le cache Streamlit
+    coords_gpx = tuple((p.latitude, p.longitude) for p in points_gpx)
+
     # Date et Fuseau
-    fuseau = recuperer_fuseau(points_gpx[0].latitude, points_gpx[0].longitude)
+    fuseau = recuperer_fuseau(coords_gpx[0][0], coords_gpx[0][1])
     date_depart = datetime.combine(date_dep, heure_dep)
-    infos_soleil = recuperer_soleil(points_gpx[0].latitude, points_gpx[0].longitude, date_dep.strftime("%Y-%m-%d"))
+    infos_soleil = recuperer_soleil(coords_gpx[0][0], coords_gpx[0][1], date_dep.strftime("%Y-%m-%d"))
 
     # Parcours
     checkpoints, profil_data = [], []
@@ -187,12 +190,31 @@ def main():
     # Cols
     ascensions = detecter_ascensions(df_profil)
     if ascensions:
-        # Simplifié pour le code
-        pass 
+        dist_cum = 0.0
+        pt_par_km = {} 
+        for i in range(1, len(points_gpx)):
+            p1, p2 = points_gpx[i-1], points_gpx[i]
+            dist_cum += p1.distance_2d(p2) or 0.0
+            km = round(dist_cum / 1000, 3)
+            pt_par_km[km] = p2
 
-    # Eau et Qualité de l'air
-    points_eau = recuperer_points_eau(points_gpx)
-    air_quality = recuperer_qualite_air(points_gpx[0].latitude, points_gpx[0].longitude, date_dep.strftime("%Y-%m-%d"))
+        def coords_au_km(km_cible):
+            if not pt_par_km: return None, None
+            km_proche = min(pt_par_km.keys(), key=lambda k: abs(k - km_cible))
+            pt = pt_par_km[km_proche]
+            return pt.latitude, pt.longitude
+
+        for asc in ascensions:
+            lat_s, lon_s = coords_au_km(asc["_sommet_km"])
+            lat_d, lon_d = coords_au_km(asc["_debut_km"])
+            asc["_lat_sommet"] = lat_s
+            asc["_lon_sommet"] = lon_s
+            asc["_lat_debut"]  = lat_d
+            asc["_lon_debut"]  = lon_d
+
+    # Eau et Qualité de l'air (Utilise la version simplifiée coords_gpx)
+    points_eau = recuperer_points_eau(coords_gpx)
+    air_quality = recuperer_qualite_air(coords_gpx[0][0], coords_gpx[0][1], date_dep.strftime("%Y-%m-%d"))
 
     # Météo Batch
     frozen = tuple((cp["lat"], cp["lon"], cp["Heure_API"]) for cp in checkpoints)
@@ -204,7 +226,7 @@ def main():
         return
     else:
         for cp in checkpoints:
-            m = extraire_meteo(rep_list, cp["Heure_API"]) # Note: rep_list is whole dataset now
+            m = extraire_meteo(rep_list, cp["Heure_API"])
             if m["dir_deg"] is not None: m["effet"] = direction_vent_relative(cp["Cap"], m["dir_deg"])
             cp.update(m); resultats.append(cp)
 
@@ -238,7 +260,6 @@ def main():
     tab_carte, tab_detail, tab_analyse = st.tabs(["🗺️ Carte & Tracé", "📋 Tableau de Marche", "🤖 Coach IA"])
 
     with tab_carte:
-        # Affiche la carte Modernisée
         carte = creer_carte_moderne(points_gpx, resultats, ascensions, points_eau)
         st_folium(carte, width="100%", height=600, returned_objects=[])
 
