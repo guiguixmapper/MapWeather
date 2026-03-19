@@ -1,5 +1,5 @@
 """
-🚴‍♂️ Vélo & Météo — V15.2 (Correction UX Bandeau, Calories et Segments Cols)
+🚴‍♂️ Vélo & Météo — Interface propre et native
 ======================================================================
 """
 import streamlit as st
@@ -637,55 +637,27 @@ def main():
         asc["Temps col"] = f"{mins_col} min ({vit_col} km/h)"
         asc["Arrivée sommet"] = heure_sommet.strftime("%H:%M")
 
-    # ── AFFICHAGE HAUT DE PAGE CORRIGÉ ──
-    html_header = f"""
-    <div style="background:linear-gradient(135deg,#1e3a5f,#1e40af);border-radius:12px;padding:16px 24px;color:white;margin:12px 0;display:flex;align-items:center;gap:15px;flex-wrap:wrap;">
-      <div style="min-width:160px;padding-right:20px;border-right:1px solid rgba(255,255,255,0.25);">
-        <div style="font-size:2.8rem;font-weight:900;line-height:1">{score['total']}<span style="font-size:1.2rem">/10</span></div>
-        <div style="font-size:.95rem;font-weight:600;margin-top:4px">{score['label']}</div>
-        <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
-          <span style="background:rgba(255,255,255,.2);border-radius:20px;padding:3px 10px;font-size:.75rem">🌤️ {score['score_meteo']}/6</span>
-          <span style="background:rgba(255,255,255,.2);border-radius:20px;padding:3px 10px;font-size:.75rem">🏔️ {score['score_cols']}/4</span>
-          {"<span style='background:#f59e0b;border-radius:20px;padding:3px 10px;font-size:.75rem'>⏳ HISTO</span>" if is_past else ""}
-        </div>
-      </div>
-      <div style="display:flex;gap:15px;flex:1;flex-wrap:wrap;justify-content:space-around;">
-        <div style="text-align:center;min-width:80px;">
-          <div style="font-size:1.8rem;font-weight:800">{round(dist_tot/1000,1)}</div>
-          <div style="font-size:.85rem;color:rgba(255,255,255,0.85)">km</div>
-        </div>
-        <div style="text-align:center;min-width:80px;">
-          <div style="font-size:1.8rem;font-weight:800">{int(d_plus)}</div>
-          <div style="font-size:.85rem;color:rgba(255,255,255,0.85)">m (D+)</div>
-        </div>
-        <div style="text-align:center;min-width:80px;">
-          <div style="font-size:1.8rem;font-weight:800">{int(d_moins)}</div>
-          <div style="font-size:.85rem;color:rgba(255,255,255,0.85)">m (D-)</div>
-        </div>
-        <div style="text-align:center;min-width:80px;">
-          <div style="font-size:1.8rem;font-weight:800">{dh}h{dm:02d}</div>
-          <div style="font-size:.85rem;color:rgba(255,255,255,0.85)">Durée</div>
-        </div>
-        <div style="text-align:center;min-width:80px;">
-          <div style="font-size:1.8rem;font-weight:800;color:#34d399">{vit_moy_reelle}</div>
-          <div style="font-size:.85rem;color:rgba(255,255,255,0.85)">km/h (Moy.)</div>
-        </div>
-        <div style="text-align:center;min-width:80px;">
-          <div style="font-size:1.8rem;font-weight:800">{heure_arr.strftime('%H:%M')}</div>
-          <div style="font-size:.85rem;color:rgba(255,255,255,0.85)">Arrivée</div>
-        </div>
-        <div style="text-align:center;min-width:80px;">
-          <div style="font-size:1.8rem;font-weight:800">{calories}</div>
-          <div style="font-size:.85rem;color:rgba(255,255,255,0.85)">kcal</div>
-        </div>
-        <div style="text-align:center;min-width:80px;">
-          <div style="font-size:1.8rem;font-weight:800">{len(points_eau)} 💧</div>
-          <div style="font-size:.85rem;color:rgba(255,255,255,0.85)">Points d'eau</div>
-        </div>
-      </div>
-    </div>
-    """
-    st.markdown(html_header, unsafe_allow_html=True)
+
+    # ── AFFICHAGE HAUT DE PAGE (NATIF STREAMLIT) ──
+    st.markdown("### 📊 Résumé de la sortie")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    badge = " ⏳ (Histo)" if is_past else ""
+    col1.metric(label=f"Note Globale{badge}", value=f"{score['total']}/10", delta=score['label'], delta_color="off")
+    col2.metric(label="Météo 🌤️", value=f"{score['score_meteo']}/6")
+    col3.metric(label="Ascensions 🏔️", value=f"{score['score_cols']}/4")
+    col4.metric(label="Calories 🔥", value=f"{calories} kcal")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    col5, col6, col7, col8, col9 = st.columns(5)
+    col5.metric(label="Distance", value=f"{round(dist_tot/1000, 1)} km")
+    col6.metric(label="Dénivelé", value=f"{int(d_plus)} m D+ / {int(d_moins)} m D-")
+    col7.metric(label="Durée", value=f"{dh}h{dm:02d}")
+    col8.metric(label="Moyenne", value=f"{vit_moy_reelle} km/h")
+    col9.metric(label="Arrivée / Eau", value=f"{heure_arr.strftime('%H:%M')} | {len(points_eau)} 💧")
+        
+    st.divider()
 
     # Optimiseur de départ interactif
     if not is_past and not err_meteo:
@@ -783,7 +755,6 @@ def main():
             st.dataframe(pd.DataFrame(ascensions)[cols_aff], width='stretch', hide_index=True)
             st.divider()
             
-            # --- CURSEUR RESTAURÉ ICI ---
             st.subheader("🔍 Profil détaillé d'une montée")
             noms_cols = [f"{a.get('Nom','') + ' — ' if a.get('Nom','—') != '—' else ''}{a['Catégorie']} — Km {a['Départ (km)']}→{a['Sommet (km)']}" for a in ascensions]
             col_choix = st.selectbox("Choisir une montée :", options=noms_cols, index=0)
