@@ -1,5 +1,5 @@
 """
-🚴‍♂️ Vélo & Météo — V14 (La Complète : 6 Onglets Intacts + Eau + Pollen + Optimiseur)
+🚴‍♂️ Vélo & Météo — V14.1 (La Complète + Radar de noms V2)
 ======================================================================
 """
 import streamlit as st
@@ -21,7 +21,9 @@ import time
 import climbing as climbing_module
 from climbing import detecter_ascensions, estimer_watts, estimer_fc, estimer_temps_col, calculer_calories, zones_actives, get_zone, LEGENDE_UCI, COULEURS_CAT
 from weather import recuperer_fuseau, recuperer_meteo_batch, recuperer_soleil, extraire_meteo, direction_vent_relative, label_wind_chill, recuperer_qualite_air
-from overpass import enrichir_cols, recuperer_points_eau
+
+# 👉 LA CORRECTION EST ICI : on importe enrichir_cols_v2
+from overpass import enrichir_cols_v2, recuperer_points_eau
 from map_builder import creer_carte_moderne
 from gemini_coach import generer_briefing
 
@@ -430,10 +432,11 @@ def main():
             asc["_lat_sommet"] = lat_s; asc["_lon_sommet"] = lon_s
             asc["_lat_debut"] = lat_d; asc["_lon_debut"] = lon_d
 
+    # 👉 APPEL DE LA V2 POUR CHERCHER LES NOMS
     if noms_osm and ascensions:
         with etapes.container():
-            with st.spinner("🗺️ Recherche des noms OSM…"):
-                ascensions = enrichir_cols(ascensions, coords_gpx)
+            with st.spinner("🗺️ Recherche des noms OSM (Radar large)…"):
+                ascensions = enrichir_cols_v2(ascensions, coords_gpx)
 
     for asc in ascensions:
         asc.setdefault("Nom", "—"); asc.setdefault("Nom OSM alt", None)
