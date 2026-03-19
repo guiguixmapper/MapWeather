@@ -1,5 +1,5 @@
 """
-🚴‍♂️ Vélo & Météo — V14.1 (La Complète + Radar de noms V2)
+🚴‍♂️ Vélo & Météo — V15 (La Vraie Complète : UX Restaurée + Nouveautés)
 ======================================================================
 """
 import streamlit as st
@@ -17,14 +17,11 @@ import base64
 import re
 import time
 
-# Nos modules
+# Nos modules externes
 import climbing as climbing_module
 from climbing import detecter_ascensions, estimer_watts, estimer_fc, estimer_temps_col, calculer_calories, zones_actives, get_zone, LEGENDE_UCI, COULEURS_CAT
 from weather import recuperer_fuseau, recuperer_meteo_batch, recuperer_soleil, extraire_meteo, direction_vent_relative, label_wind_chill, recuperer_qualite_air
-
-# 👉 LA CORRECTION EST ICI : on importe enrichir_cols_v2
 from overpass import enrichir_cols_v2, recuperer_points_eau
-from map_builder import creer_carte_moderne
 from gemini_coach import generer_briefing
 
 logging.basicConfig(level=logging.INFO)
@@ -36,11 +33,22 @@ logger = logging.getLogger(__name__)
 
 CSS = """
 <style>
-  :root { --bleu: #2563eb; --radius: 12px; }
-  .app-header { background: linear-gradient(135deg, #1e40af, #0ea5e9); border-radius: var(--radius); padding: 24px 32px 20px; margin-bottom: 20px; color: white; }
-  .app-header h1 { font-size: 1.9rem; margin: 0; font-weight: 800; letter-spacing: -.5px; }
-  .app-header p { font-size: .9rem; margin: 5px 0 0; opacity: .85; }
-  .soleil-row { display: flex; gap: 14px; flex-wrap: wrap; background: linear-gradient(90deg, #fef3c7, #fde68a); border-radius: var(--radius); padding: 12px 18px; margin: 10px 0; align-items: center; }
+  :root {
+    --bleu: #2563eb; --bleu-l: #dbeafe;
+    --gris: #6b7280; --border: #e2e8f0; --radius: 12px;
+  }
+  .app-header {
+    background: linear-gradient(135deg, #1e40af 0%, #2563eb 55%, #0ea5e9 100%);
+    border-radius: var(--radius); padding: 24px 32px 20px;
+    margin-bottom: 20px; color: white;
+  }
+  .app-header h1 { font-size: 1.9rem; font-weight: 800; margin: 0; letter-spacing: -.5px; }
+  .app-header p  { font-size: .9rem; margin: 5px 0 0; opacity: .85; }
+  .soleil-row {
+    display: flex; gap: 14px; flex-wrap: wrap;
+    background: linear-gradient(90deg, #fef3c7, #fde68a);
+    border-radius: var(--radius); padding: 12px 18px; margin: 10px 0; align-items: center;
+  }
   .soleil-item .s-val { font-size: 1.05rem; font-weight: 700; color: #92400e; }
   .soleil-item .s-lbl { font-size: .7rem; color: #b45309; }
 </style>
@@ -62,7 +70,8 @@ def parser_gpx(data):
     try:
         gpx = gpxpy.parse(data)
         return [p for t in gpx.tracks for s in t.segments for p in s.points]
-    except Exception as e: return []
+    except Exception as e: 
+        logger.error(f"GPX : {e}"); return []
 
 def generer_html_resume(score, ascensions, resultats, dist_tot, d_plus, d_moins, temps_s, heure_depart, heure_arr, vitesse_plat, vit_moy_reelle, calories, carte, df_profil, ref_val, mode, poids, briefing_ia=None):
     dh = int(temps_s // 3600); dm = int((temps_s % 3600) // 60)
@@ -170,10 +179,20 @@ def calculer_score(resultats, ascensions, d_plus, vitesse, ref_val, mode, poids)
     valides = [cp for cp in resultats if cp.get("temp_val") is not None]
     if valides:
         tm = sum(cp["temp_val"] for cp in valides) / len(valides)
-        s_temp = 2.0 if 15<=tm<=22 else 1.5 if 10<=tm<=27 else 0.8 if 5<=tm<=32 else 0.3 if tm>=0 else 0.0
+        if   15 <= tm <= 22: s_temp = 2.0
+        elif 10 <= tm <= 27: s_temp = 1.5
+        elif  5 <= tm <= 32: s_temp = 0.8
+        elif  0 <= tm:       s_temp = 0.3
+        else:                s_temp = 0.0
+
         POIDS_EFFET = { "⬇️ Face": 1.5, "↙️ Côté (D)": 0.7, "↘️ Côté (G)": 0.7, "⬆️ Dos": -0.3, "—": 0.5 }
         ve_moy = sum((cp.get("vent_val") or 0) * POIDS_EFFET.get(cp.get("effet", "—"), 0.5) for cp in valides) / len(valides)
-        s_vent = 2.0 if ve_moy<=8 else 1.5 if ve_moy<=18 else 0.8 if ve_moy<=30 else 0.3 if ve_moy<=45 else 0.0
+        if   ve_moy <= 8:  s_vent = 2.0
+        elif ve_moy <= 18: s_vent = 1.5
+        elif ve_moy <= 30: s_vent = 0.8
+        elif ve_moy <= 45: s_vent = 0.3
+        else:              s_vent = 0.0
+
         pm = sum(cp.get("pluie_pct") or 0 for cp in valides) / len(valides)
         s_pluie = round(max(0.0, 2.0 * (1 - pm / 100)), 2)
         sm = s_temp + s_vent + s_pluie
@@ -208,6 +227,139 @@ def optimiser_depart(checkpoints_base, rep_list, ascensions, d_plus, vitesse, re
             meilleur_score = sc
             meilleur_offset = offset
     return meilleur_offset, meilleur_score
+
+
+# ==============================================================================
+# CARTE (RESTAURÉE AVEC LES POP-UPS DÉTAILLÉS DE LA V10)
+# ==============================================================================
+
+def creer_carte(points_gpx, resultats, ascensions, points_eau, tiles="CartoDB positron", attr=None):
+    kwargs = dict(location=[points_gpx[0].latitude, points_gpx[0].longitude],
+                  zoom_start=11, tiles=tiles, scrollWheelZoom=True)
+    if attr: kwargs["attr"] = attr
+    carte = folium.Map(**kwargs)
+    
+    fg_meteo = folium.FeatureGroup(name="🌤️ Météo",      show=True)
+    fg_cols  = folium.FeatureGroup(name="🏔️ Ascensions", show=True)
+    fg_eau   = folium.FeatureGroup(name="💧 Points d'eau", show=True)
+    fg_trace = folium.FeatureGroup(name="📍 Parcours",   show=True)
+    
+    # Ligne du parcours
+    folium.PolyLine([[p.latitude, p.longitude] for p in points_gpx],
+                    color="#2563eb", weight=5, opacity=0.9).add_to(fg_trace)
+    
+    # Départ / Arrivée
+    folium.Marker([points_gpx[0].latitude, points_gpx[0].longitude], tooltip="🚦 Départ",
+                  icon=folium.Icon(color="green", icon="play", prefix="fa")).add_to(fg_trace)
+    folium.Marker([points_gpx[-1].latitude, points_gpx[-1].longitude], tooltip="🏁 Arrivée",
+                  icon=folium.Icon(color="red", icon="flag", prefix="fa")).add_to(fg_trace)
+    
+    # Points d'eau (Nouvelle fonctionnalité)
+    if points_eau:
+        for eau in points_eau:
+            folium.Marker([eau["lat"], eau["lon"]], tooltip=f"💧 {eau['nom']}",
+                          icon=folium.Icon(color="lightblue", icon="tint")).add_to(fg_eau)
+
+    # Ascensions (Popups détaillés restaurés)
+    COULEUR_COL = {"🔴 HC":"red","🟠 1ère Cat.":"orange",
+                   "🟡 2ème Cat.":"beige","🟢 3ème Cat.":"green","🔵 4ème Cat.":"blue"}
+    
+    for asc in ascensions:
+        lat_s = asc.get("_lat_sommet")
+        lon_s = asc.get("_lon_sommet")
+        if lat_s is None or lon_s is None:
+            continue
+        nom     = asc.get("Nom", "—")
+        coul    = COULEUR_COL.get(asc["Catégorie"], "blue")
+        alt_osm = asc.get("Nom OSM alt")
+        alt_line = (f'<div>⛰️ Sommet GPX : {asc["Alt. sommet"]}'
+                    + (f' &nbsp;·&nbsp; OSM : {alt_osm} m' if alt_osm else '') + '</div>')
+        popup_col = (
+            '<div style="font-family:sans-serif;font-size:12px;min-width:180px">'
+            f'<div style="font-weight:700;font-size:14px;margin-bottom:6px">'
+            f'{nom+" — " if nom != "—" else ""}{asc["Catégorie"]}</div>'
+            f'<div>📏 {asc["Longueur"]} &nbsp;·&nbsp; D+ {asc["Dénivelé"]}</div>'
+            f'<div>📐 {asc["Pente moy."]} moy. &nbsp;·&nbsp; {asc["Pente max"]} max</div>'
+            + alt_line
+            + (f'<div style="margin-top:5px">⏱️ {asc.get("Temps col","—")} &nbsp;·&nbsp; arr. {asc.get("Arrivée sommet","—")}</div>'
+               if asc.get("Temps col") else "")
+            + '</div>')
+        folium.Marker([lat_s, lon_s],
+            popup=folium.Popup(popup_col, max_width=260),
+            tooltip=folium.Tooltip(f'▲ {nom if nom != "—" else asc["Catégorie"]} — {asc["Alt. sommet"]}', sticky=True),
+            icon=folium.Icon(color=coul, icon="chevron-up", prefix="fa")).add_to(fg_cols)
+            
+    # Météo (Popups et Tooltips détaillés restaurés avec flèches de vent)
+    for cp in resultats:
+        t = cp.get("temp_val")
+        if t is None: continue
+        dd = cp.get("dir_deg"); vv = cp.get("vent_val", 0) or 0
+        fc  = "#ef4444" if vv>=40 else "#f97316" if vv>=25 else "#eab308" if vv>=10 else "#22c55e"
+        rot = (dd + 180) % 360 if dd is not None else 0
+        svg = (f'<svg width="16" height="16" viewBox="0 0 28 28" style="vertical-align:middle">'
+               f'<g transform="rotate({rot},14,14)"><polygon points="14,2 20,22 14,18 8,22" fill="{fc}"/>'
+               f'</g></svg>') if dd is not None else "💨"
+        pp = cp.get("pluie_pct")
+        if pp is not None:
+            pc    = "#1d4ed8" if pp>=70 else "#2563eb" if pp>=40 else "#60a5fa"
+            barre = (f'<div style="margin:4px 0 2px;font-size:11px">&#127783; Pluie : <b>{pp}%</b></div>'
+                     '<div style="background:#e2e8f0;border-radius:4px;height:6px;width:100%">'
+                     f'<div style="background:{pc};width:{pp}%;height:6px;border-radius:4px"></div></div>')
+        else:
+            barre = '<div style="font-size:11px">&#127783; Pluie : —</div>'
+        res    = cp.get("ressenti")
+        popup  = (
+            '<div style="font-family:sans-serif;font-size:12px;min-width:200px">'
+            f'<div style="font-weight:700;font-size:13px;border-bottom:1px solid #e2e8f0;'
+            f'padding-bottom:4px;margin-bottom:6px">{cp["Heure"]} — Km {cp["Km"]}</div>'
+            f'<div style="color:#6b7280;margin-bottom:5px">⛰️ Alt : {cp["Alt (m)"]} m</div>'
+            f'<div style="font-size:15px;margin-bottom:3px">{cp["Ciel"]} <b>{t}°C</b>'
+            + (f' <span style="color:#6b7280;font-size:11px">(ressenti {res}°C)</span>' if res else "")
+            + f'</div>{barre}'
+            f'<div style="margin-top:7px;padding-top:5px;border-top:1px solid #f1f5f9">'
+            f'<div style="display:flex;align-items:center;gap:5px;margin-bottom:2px">'
+            f'{svg} <b>{vv} km/h</b> <span style="color:#6b7280">du {cp["Dir"]}</span></div>'
+            f'<div style="color:#6b7280;font-size:11px">Rafales : {cp.get("rafales_val","—")} km/h</div>'
+            f'<div style="margin-top:3px;font-size:11px">🚴 <b>{cp.get("effet","—")}</b></div>'
+            '</div></div>')
+        folium.Marker([cp["lat"], cp["lon"]],
+            popup=folium.Popup(popup, max_width=280),
+            tooltip=folium.Tooltip(
+                f"{cp['Heure']} | {cp['Ciel']} {t}°C | "
+                f'<svg width="12" height="12" viewBox="0 0 28 28" style="vertical-align:middle">'
+                f'<g transform="rotate({rot},14,14)"><polygon points="14,2 20,22 14,18 8,22" fill="{fc}"/></g></svg>'
+                f" {vv} km/h", sticky=True),
+            icon=folium.Icon(color="blue", icon="info-sign")).add_to(fg_meteo)
+
+    fg_trace.add_to(carte)
+    fg_eau.add_to(carte)
+    fg_cols.add_to(carte)
+    fg_meteo.add_to(carte)
+
+    folium.LayerControl(collapsed=False, position="topright").add_to(carte)
+
+    css_legende = """
+    <style>
+    .leaflet-control-layers {
+        border-radius: 10px !important;
+        border: none !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15) !important;
+        padding: 0 !important;
+        overflow: hidden;
+        font-family: Arial, sans-serif !important;
+    }
+    .leaflet-control-layers-expanded { padding: 10px 14px !important; min-width: 160px !important; }
+    .leaflet-control-layers-list { margin: 0 !important; }
+    .leaflet-control-layers label { display: flex !important; align-items: center !important; gap: 6px !important; font-size: 13px !important; color: #1e293b !important; margin: 4px 0 !important; cursor: pointer !important; }
+    .leaflet-control-layers-separator { display: none !important; }
+    .leaflet-control-layers-overlays { display: flex !important; flex-direction: column !important; gap: 2px !important; }
+    .leaflet-control-layers-expanded::before { content: "🗺️ Calques"; display: block; font-weight: 700; font-size: 11px; color: #64748b; letter-spacing: .5px; text-transform: uppercase; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #e2e8f0; }
+    </style>
+    """
+    carte.get_root().html.add_child(folium.Element(css_legende))
+
+    return carte
+
 
 # ==============================================================================
 # GRAPHIQUES PLOTLY
@@ -432,7 +584,6 @@ def main():
             asc["_lat_sommet"] = lat_s; asc["_lon_sommet"] = lon_s
             asc["_lat_debut"] = lat_d; asc["_lon_debut"] = lon_d
 
-    # 👉 APPEL DE LA V2 POUR CHERCHER LES NOMS
     if noms_osm and ascensions:
         with etapes.container():
             with st.spinner("🗺️ Recherche des noms OSM (Radar large)…"):
@@ -478,26 +629,69 @@ def main():
         asc["Temps col"] = f"{mins_col} min ({vit_col} km/h)"
         asc["Arrivée sommet"] = heure_sommet.strftime("%H:%M")
 
-    if not is_past:
-        opt_res = optimiser_depart(checkpoints, rep_list, ascensions, d_plus, vitesse, ref_val, mode, poids)
-        if opt_res and opt_res[0] > 0 and opt_res[1] > score['total']:
-            heure_opt = (date_depart + timedelta(hours=opt_res[0])).strftime("%H:%M")
-            st.info(f"💡 **Départ optimal calculé : {heure_opt} (+{opt_res[0]}h)**. Votre score passerait à **{opt_res[1]}/10** ! (Modifiez l'heure à gauche pour actualiser).")
-
+    # ── AFFICHAGE HAUT DE PAGE (Le Bandeau avec les beaux labels est de retour) ──
     st.markdown(f"""
-    <div style="background:linear-gradient(135deg,#1e3a5f,#1e40af);border-radius:12px; padding:16px 24px;color:white;display:flex;flex-wrap:wrap">
+    <div style="background:linear-gradient(135deg,#1e3a5f,#1e40af);border-radius:12px;
+                padding:16px 24px;color:white;margin:12px 0;
+                display:flex;align-items:center;gap:0;flex-wrap:wrap">
       <div style="min-width:160px;padding-right:24px;border-right:1px solid rgba(255,255,255,0.25)">
         <div style="font-size:2.8rem;font-weight:900;line-height:1">{score['total']}<span style="font-size:1.2rem">/10</span></div>
-        <div style="font-size:.95rem;font-weight:600">{score['label']}</div>
-        {"<span style='background:#f59e0b;padding:2px 6px;border-radius:4px;font-size:10px'>HISTORIQUE</span>" if is_past else ""}
+        <div style="font-size:.95rem;font-weight:600;margin-top:2px">{score['label']}</div>
+        <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
+          <span style="background:rgba(255,255,255,.2);border-radius:20px;padding:3px 10px;font-size:.75rem">🌤️ {score['score_meteo']}/6</span>
+          <span style="background:rgba(255,255,255,.2);border-radius:20px;padding:3px 10px;font-size:.75rem">🏔️ {score['score_cols']}/4</span>
+        </div>
       </div>
       <div style="display:flex;gap:0;flex:1;flex-wrap:wrap;padding-left:8px">
-        <div style="flex:1;text-align:center;padding:6px"><div style="font-size:1.5rem;font-weight:800">{round(dist_tot/1000,1)} km</div></div>
-        <div style="flex:1;text-align:center;padding:6px"><div style="font-size:1.5rem;font-weight:800">{int(d_plus)} m</div></div>
-        <div style="flex:1;text-align:center;padding:6px"><div style="font-size:1.5rem;font-weight:800;color:#34d399">{vit_moy_reelle} km/h</div><div style="font-size:.7rem">Moy. réelle</div></div>
-        <div style="flex:1;text-align:center;padding:6px"><div style="font-size:1.5rem;font-weight:800;color:#60a5fa">{len(points_eau)} 💧</div></div>
+        <div style="flex:1;min-width:90px;text-align:center;padding:6px 12px;border-right:1px solid rgba(255,255,255,0.2)">
+          <div style="font-size:1.9rem;font-weight:800">{round(dist_tot/1000,1)}</div>
+          <div style="font-size:.9rem;color:rgba(255,255,255,0.85)">km</div>
+          <div style="font-size:.75rem;color:rgba(255,255,255,0.6)">📏 Distance</div>
+        </div>
+        <div style="flex:1;min-width:90px;text-align:center;padding:6px 12px;border-right:1px solid rgba(255,255,255,0.2)">
+          <div style="font-size:1.9rem;font-weight:800">{int(d_plus)}</div>
+          <div style="font-size:.9rem;color:rgba(255,255,255,0.85)">m</div>
+          <div style="font-size:.75rem;color:rgba(255,255,255,0.6)">⬆️ Dénivelé +</div>
+        </div>
+        <div style="flex:1;min-width:90px;text-align:center;padding:6px 12px;border-right:1px solid rgba(255,255,255,0.2)">
+          <div style="font-size:1.9rem;font-weight:800">{int(d_moins)}</div>
+          <div style="font-size:.9rem;color:rgba(255,255,255,0.85)">m</div>
+          <div style="font-size:.75rem;color:rgba(255,255,255,0.6)">⬇️ Dénivelé −</div>
+        </div>
+        <div style="flex:1;min-width:90px;text-align:center;padding:6px 12px;border-right:1px solid rgba(255,255,255,0.2)">
+          <div style="font-size:1.9rem;font-weight:800">{dh}h{dm:02d}</div>
+          <div style="font-size:.9rem;color:rgba(255,255,255,0.85)">min</div>
+          <div style="font-size:.75rem;color:rgba(255,255,255,0.6)">⏱️ Durée</div>
+        </div>
+        <div style="flex:1;min-width:110px;text-align:center;padding:6px 12px;border-right:1px solid rgba(255,255,255,0.2)">
+          <div style="font-size:1.9rem;font-weight:800;color:#34d399">{vit_moy_reelle}</div>
+          <div style="font-size:.9rem;color:rgba(255,255,255,0.85)">km/h</div>
+          <div style="font-size:.75rem;color:rgba(255,255,255,0.6)">🚴 Moy. Réelle</div>
+        </div>
+        <div style="flex:1;min-width:90px;text-align:center;padding:6px 12px;border-right:1px solid rgba(255,255,255,0.2)">
+          <div style="font-size:1.9rem;font-weight:800">{heure_arr.strftime('%H:%M')}</div>
+          <div style="font-size:.9rem;color:rgba(255,255,255,0.85)">&nbsp;</div>
+          <div style="font-size:.75rem;color:rgba(255,255,255,0.6)">🏁 Arrivée</div>
+        </div>
+        <div style="flex:1;min-width:90px;text-align:center;padding:6px 12px;border-left:1px solid rgba(255,255,255,0.2)">
+          <div style="font-size:1.9rem;font-weight:800">{calories}</div>
+          <div style="font-size:.9rem;color:rgba(255,255,255,0.85)">kcal</div>
+          <div style="font-size:.75rem;color:rgba(255,255,255,0.6)">🔥 Calories</div>
+        </div>
       </div>
     </div>""", unsafe_allow_html=True)
+
+    # L'Optimiseur a maintenant un beau bouton interactif
+    if not is_past and not err_meteo:
+        with st.expander("⏱️ Trouver le meilleur moment pour partir", expanded=False):
+            st.markdown("L'application va simuler votre sortie pour les 3 prochaines heures et trouver le créneau avec le meilleur score météo.")
+            if st.button("Lancer l'optimisation", type="primary"):
+                opt_res = optimiser_depart(checkpoints, rep_list, ascensions, d_plus, vitesse, ref_val, mode, poids)
+                if opt_res and opt_res[0] > 0 and opt_res[1] > score['total']:
+                    heure_opt = (date_depart + timedelta(hours=opt_res[0])).strftime("%H:%M")
+                    st.success(f"💡 **Départ optimal trouvé : {heure_opt} (+{opt_res[0]}h)**. Votre score passerait à **{opt_res[1]}/10** ! (Modifiez l'heure à gauche pour actualiser toute l'interface).")
+                else:
+                    st.info("✅ Ne changez rien ! Votre heure de départ actuelle est déjà la meilleure pour les conditions météo.")
 
     tab_carte, tab_profil, tab_meteo, tab_cols, tab_detail, tab_analyse = st.tabs([
         "🗺️ Carte", "⛰️ Profil & Cols", "🌤️ Météo", "🏔️ Ascensions", "📋 Détail", "🤖 Coach IA"
@@ -509,18 +703,26 @@ def main():
             ds = infos_soleil["coucher"] - infos_soleil["lever"]
             hj, mj = int(ds.seconds // 3600), int((ds.seconds % 3600) // 60)
             st.markdown(f"<div class='soleil-row'><span style='font-size:1.3rem'>☀️</span><div class='soleil-item'><div class='s-val'>🌅 {ls}</div><div class='s-lbl'>Lever (UTC)</div></div><div class='soleil-item'><div class='s-val'>🌇 {cs}</div><div class='s-lbl'>Coucher (UTC)</div></div><div class='soleil-item'><div class='s-val'>{hj}h{mj:02d}m</div><div class='s-lbl'>Durée du jour</div></div></div>", unsafe_allow_html=True)
+            
+            # Alerte Nuit
+            tz = infos_soleil["lever"].tzinfo
+            if date_depart.replace(tzinfo=tz) < infos_soleil["lever"]:
+                st.warning(f"⚠️ Départ avant le lever du soleil ({ls} UTC) — prévoyez un éclairage.")
+            if heure_arr.replace(tzinfo=tz) > infos_soleil["coucher"]:
+                st.warning(f"⚠️ Arrivée après le coucher ({cs} UTC) — prévoyez un éclairage.")
+                
         FONDS = {"🗺️ CartoDB Positron": ("CartoDB positron", None), "🌍 OpenStreetMap": ("OpenStreetMap", None), "🏔️ OpenTopoMap": ("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", "Map data © OSM")}
         fond_choisi = st.selectbox("🖼️ Fond de carte", options=list(FONDS.keys()), index=0)
         tiles, attr = FONDS[fond_choisi]
         
-        carte = creer_carte_moderne(points_gpx, resultats, ascensions, points_eau, tiles, attr)
+        carte = creer_carte(points_gpx, resultats, ascensions, points_eau, tiles, attr)
         st_folium(carte, width="100%", height=700, returned_objects=[])
         
         st.divider()
         if st.button("📤 Télécharger le Carnet de Route (HTML / PDF)", use_container_width=True):
             with st.spinner("Génération..."):
                 briefing_actuel = st.session_state.get("briefing_ia", None)
-                carte_export = creer_carte_moderne(points_gpx, resultats, ascensions, points_eau, tiles, attr)
+                carte_export = creer_carte(points_gpx, resultats, ascensions, points_eau, tiles, attr)
                 html_bytes = generer_html_resume(score, ascensions, resultats, dist_tot, d_plus, d_moins, temps_s, date_depart, heure_arr, vitesse, vit_moy_reelle, calories, carte_export, df_profil, ref_val, mode, poids, briefing_actuel)
                 nom_f = f"Roadbook_{date_dep.strftime('%Y%m%d')}.html"
                 b64 = base64.b64encode(html_bytes).decode()
@@ -535,6 +737,11 @@ def main():
             if choix != "(toutes les côtes)": idx_survol = noms_liste.index(choix) - 1
         if not df_profil.empty:
             st.plotly_chart(creer_figure_profil(df_profil, ascensions, vitesse, ref_val, mode, poids, idx_survol), width='stretch')
+        st.markdown(f"**Zones d'entraînement ({lbl_mode}) :**")
+        cols_z = st.columns(6)
+        for j, (_, _, num, lbl, coul) in enumerate(zones_actives(mode)):
+            cols_z[j].markdown(f'<div style="background:{coul};color:white;border-radius:6px;padding:6px;text-align:center;font-size:.72rem"><b>{lbl}</b></div>', unsafe_allow_html=True)
+
 
     with tab_meteo:
         if err_meteo: st.warning("⚠️ Météo indisponible.")
@@ -553,6 +760,7 @@ def main():
                     st.markdown(f"<div style='text-align:center;padding:16px;background:#f8fafc;border-radius:10px'><div style='font-size:2.5rem;font-weight:900;color:{coul}'>{pp}%</div><div style='font-size:.85rem;color:#64748b'>du parcours avec risque > 50%</div></div>", unsafe_allow_html=True)
 
     with tab_cols:
+        st.caption(LEGENDE_UCI)
         if ascensions:
             for a in ascensions:
                 w = estimer_watts(a["_pente_moy"], vitesse, poids)
