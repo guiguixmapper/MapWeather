@@ -452,14 +452,14 @@ def main():
     etapes.empty()
 
     resultats = []
-    if rep_list is None:
+    err_meteo = rep_list is None
+    if err_meteo:
         st.warning("⚠️ Météo indisponible. Open-Meteo vous a bloqué (429).")
         for cp in checkpoints:
             cp.update(Ciel="—", temp_val=None, Pluie="—", pluie_pct=None, vent_val=None, rafales_val=None, Dir="—", dir_deg=None, effet="—", ressenti=None)
             resultats.append(cp)
     else:
         for i, cp in enumerate(checkpoints):
-            # LA BOUCLE EST RÉPARÉE ICI !! (rep_list[i])
             m = extraire_meteo(rep_list[i] if i < len(rep_list) else {}, cp["Heure_API"])
             if m["dir_deg"] is not None: m["effet"] = direction_vent_relative(cp["Cap"], m["dir_deg"])
             cp.update(m); resultats.append(cp)
@@ -496,7 +496,6 @@ def main():
       </div>
     </div>""", unsafe_allow_html=True)
 
-    # VOICI VOS 6 ONGLETS RESTAURÉS
     tab_carte, tab_profil, tab_meteo, tab_cols, tab_detail, tab_analyse = st.tabs([
         "🗺️ Carte", "⛰️ Profil & Cols", "🌤️ Météo", "🏔️ Ascensions", "📋 Détail", "🤖 Coach IA"
     ])
