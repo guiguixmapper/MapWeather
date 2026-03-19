@@ -1,8 +1,9 @@
-streamlit>=1.32.0
-pandas>=2.0.0
-gpxpy>=1.6.0
-folium>=0.16.0
-streamlit-folium>=0.20.0
-requests>=2.31.0
-plotly>=5.20.0
-matplotlib>=3.8.0
+streamlit
+pandas
+gpxpy
+folium
+streamlit-folium
+plotly
+requests
+google-generativeai
+fpdf2
