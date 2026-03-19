@@ -25,7 +25,6 @@ def enrichir_cols_v2(ascensions, coords_gpx):
     s, n = min(lats) - 0.02, max(lats) + 0.02
     w, e = min(lons) - 0.02, max(lons) + 0.02
 
-    # Radar géant : on cherche les cols, sommets, collines, villages, hameaux et lieux-dits
     query = f"""
     [out:json][timeout:30];
     (
@@ -36,7 +35,6 @@ def enrichir_cols_v2(ascensions, coords_gpx):
     out body;
     """
     
-    # On met le serveur français en premier pour la rapidité !
     urls = [
         "https://overpass.openstreetmap.fr/api/interpreter",
         "https://lz4.overpass-api.de/api/interpreter",
@@ -71,7 +69,6 @@ def enrichir_cols_v2(ascensions, coords_gpx):
             if not lat_a or not lon_a: continue
             meilleur_nom, meilleure_dist, ele_osm = None, float('inf'), None
             for c in cols_osm:
-                # Filtre rapide avant calcul lourd
                 if abs(lat_a - c["lat"]) < 0.03 and abs(lon_a - c["lon"]) < 0.03:
                     dist = distance_haversine(lat_a, lon_a, c["lat"], c["lon"])
                     if dist < 2500 and dist < meilleure_dist:
@@ -90,13 +87,13 @@ def recuperer_points_eau(coords_gpx):
     lats = [lat for lat, lon in coords_gpx]
     lons = [lon for lat, lon in coords_gpx]
     
-    # On prend 1 point sur 30 (c'est amplement suffisant pour scanner avec un rayon de 250m)
+    # On échantillonne fortement (1 point sur 30) pour aller très vite
     pts_echantillon = coords_gpx[::30] 
     s, n = min(lats) - 0.02, max(lats) + 0.02
     w, e = min(lons) - 0.02, max(lons) + 0.02
 
     query = f"""
-    [out:json][timeout:20];
+    [out:json][timeout:25];
     (
       node["amenity"="drinking_water"]({s},{w},{n},{e});
       node["amenity"="water_point"]({s},{w},{n},{e});
@@ -105,7 +102,6 @@ def recuperer_points_eau(coords_gpx):
     out body;
     """
     
-    # Serveurs optimisés (France en premier)
     urls = [
         "https://overpass.openstreetmap.fr/api/interpreter",
         "https://lz4.overpass-api.de/api/interpreter",
@@ -115,9 +111,10 @@ def recuperer_points_eau(coords_gpx):
     points_eau_valides = []
     data = None
     
+    # L'attente vient principalement de l'API ici.
     for url in urls:
         try:
-            response = requests.post(url, data={"data": query}, timeout=15)
+            response = requests.post(url, data={"data": query}, timeout=20)
             if response.status_code == 200:
                 data = response.json()
                 break
@@ -132,12 +129,12 @@ def recuperer_points_eau(coords_gpx):
             lat_w, lon_w = node["lat"], node["lon"]
             
             for lat_p, lon_p in pts_echantillon:
-                # OPTIMISATION : Filtre mathématique très rapide (carré d'environ 400m de côté) 
-                # avant de lancer le vrai calcul GPS précis. Ça accélère la boucle à la vitesse de l'éclair !
-                if abs(lat_w - lat_p) < 0.004 and abs(lon_w - lon_p) < 0.004:
-                    if distance_haversine(lat_w, lon_w, lat_p, lon_p) < 250:
-                        nom = node.get("tags", {}).get("name", "Point d'eau")
-                        points_eau_valides.append({"lat": lat_w, "lon": lon_w, "nom": nom})
-                        break # Inutile de revérifier cette fontaine
+                # OPTIMISATION EXTRÊME : Plus de trigonométrie du tout !
+                # On vérifie juste si on est dans un "carré" de ~300m autour du point GPS.
+                # C'est un simple calcul de soustraction instantané pour Python.
+                if abs(lat_w - lat_p) < 0.003 and abs(lon_w - lon_p) < 0.004:
+                    nom = node.get("tags", {}).get("name", "Point d'eau")
+                    points_eau_valides.append({"lat": lat_w, "lon": lon_w, "nom": nom})
+                    break # On passe à la fontaine suivante dès qu'on a validé celle-ci
                     
     return copy.deepcopy(points_eau_valides)
