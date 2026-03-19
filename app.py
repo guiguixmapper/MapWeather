@@ -1,5 +1,5 @@
 """
-🚴‍♂️ Vélo & Météo — V15 (La Vraie Complète : UX Restaurée + Nouveautés)
+🚴‍♂️ Vélo & Météo — V15.1 (Correction UX et Variables)
 ======================================================================
 """
 import streamlit as st
@@ -254,13 +254,13 @@ def creer_carte(points_gpx, resultats, ascensions, points_eau, tiles="CartoDB po
     folium.Marker([points_gpx[-1].latitude, points_gpx[-1].longitude], tooltip="🏁 Arrivée",
                   icon=folium.Icon(color="red", icon="flag", prefix="fa")).add_to(fg_trace)
     
-    # Points d'eau (Nouvelle fonctionnalité)
+    # Points d'eau
     if points_eau:
         for eau in points_eau:
             folium.Marker([eau["lat"], eau["lon"]], tooltip=f"💧 {eau['nom']}",
                           icon=folium.Icon(color="lightblue", icon="tint")).add_to(fg_eau)
 
-    # Ascensions (Popups détaillés restaurés)
+    # Ascensions (Popups détaillés)
     COULEUR_COL = {"🔴 HC":"red","🟠 1ère Cat.":"orange",
                    "🟡 2ème Cat.":"beige","🟢 3ème Cat.":"green","🔵 4ème Cat.":"blue"}
     
@@ -289,7 +289,7 @@ def creer_carte(points_gpx, resultats, ascensions, points_eau, tiles="CartoDB po
             tooltip=folium.Tooltip(f'▲ {nom if nom != "—" else asc["Catégorie"]} — {asc["Alt. sommet"]}', sticky=True),
             icon=folium.Icon(color=coul, icon="chevron-up", prefix="fa")).add_to(fg_cols)
             
-    # Météo (Popups et Tooltips détaillés restaurés avec flèches de vent)
+    # Météo (Popups détaillés avec flèches de vent)
     for cp in resultats:
         t = cp.get("temp_val")
         if t is None: continue
@@ -598,11 +598,18 @@ def main():
         with st.spinner("📡 Récupération météo et air..."):
             air_quality = recuperer_qualite_air(coords_gpx[0][0], coords_gpx[0][1], date_dep.strftime("%Y-%m-%d"))
             frozen = tuple((cp["lat"], cp["lon"], cp["Heure_API"]) for cp in checkpoints)
-            rep_list = recuperer_meteo_batch(frozen, is_past=is_past, date_str=date_dep.strftime("%Y-%m-%d"))
-            if rep_list is None:
-                st.toast("Le serveur météo (Open-Meteo) est surchargé. Nouvelle tentative dans 3 secondes...", icon="⏳")
-                time.sleep(3)
+            
+            # Gestion d'erreur locale au cas où
+            try:
                 rep_list = recuperer_meteo_batch(frozen, is_past=is_past, date_str=date_dep.strftime("%Y-%m-%d"))
+                if rep_list is None:
+                    st.toast("Le serveur météo (Open-Meteo) est surchargé. Nouvelle tentative dans 3...", icon="⏳")
+                    time.sleep(3)
+                    rep_list = recuperer_meteo_batch(frozen, is_past=is_past, date_str=date_dep.strftime("%Y-%m-%d"))
+            except Exception as e:
+                logger.error(f"Erreur appel météo {e}")
+                rep_list = None
+                
     etapes.empty()
 
     resultats = []
@@ -622,6 +629,9 @@ def main():
     calories = calculer_calories(max(1, poids - 10), temps_s, dist_tot, d_plus, vitesse)
     analyse_meteo = analyser_meteo_detaillee(resultats, dist_tot)
 
+    dh = int(temps_s // 3600)
+    dm = int((temps_s % 3600) // 60)
+
     for asc in ascensions:
         temps_jusqu_debut = (asc["_debut_km"] / vitesse) * 3600
         mins_col, vit_col = estimer_temps_col(asc["_sommet_km"] - asc["_debut_km"], asc["_pente_moy"], vitesse)
@@ -629,7 +639,7 @@ def main():
         asc["Temps col"] = f"{mins_col} min ({vit_col} km/h)"
         asc["Arrivée sommet"] = heure_sommet.strftime("%H:%M")
 
-    # ── AFFICHAGE HAUT DE PAGE (Le Bandeau avec les beaux labels est de retour) ──
+    # ── AFFICHAGE HAUT DE PAGE ──
     st.markdown(f"""
     <div style="background:linear-gradient(135deg,#1e3a5f,#1e40af);border-radius:12px;
                 padding:16px 24px;color:white;margin:12px 0;
@@ -640,6 +650,7 @@ def main():
         <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
           <span style="background:rgba(255,255,255,.2);border-radius:20px;padding:3px 10px;font-size:.75rem">🌤️ {score['score_meteo']}/6</span>
           <span style="background:rgba(255,255,255,.2);border-radius:20px;padding:3px 10px;font-size:.75rem">🏔️ {score['score_cols']}/4</span>
+          {"<span style='background:#f59e0b;border-radius:20px;padding:3px 10px;font-size:.75rem'>⏳ HISTO</span>" if is_past else ""}
         </div>
       </div>
       <div style="display:flex;gap:0;flex:1;flex-wrap:wrap;padding-left:8px">
@@ -651,12 +662,12 @@ def main():
         <div style="flex:1;min-width:90px;text-align:center;padding:6px 12px;border-right:1px solid rgba(255,255,255,0.2)">
           <div style="font-size:1.9rem;font-weight:800">{int(d_plus)}</div>
           <div style="font-size:.9rem;color:rgba(255,255,255,0.85)">m</div>
-          <div style="font-size:.75rem;color:rgba(255,255,255,0.6)">⬆️ Dénivelé +</div>
+          <div style="font-size:.75rem;color:rgba(255,255,255,0.6)">⬆️ D+</div>
         </div>
         <div style="flex:1;min-width:90px;text-align:center;padding:6px 12px;border-right:1px solid rgba(255,255,255,0.2)">
           <div style="font-size:1.9rem;font-weight:800">{int(d_moins)}</div>
           <div style="font-size:.9rem;color:rgba(255,255,255,0.85)">m</div>
-          <div style="font-size:.75rem;color:rgba(255,255,255,0.6)">⬇️ Dénivelé −</div>
+          <div style="font-size:.75rem;color:rgba(255,255,255,0.6)">⬇️ D−</div>
         </div>
         <div style="flex:1;min-width:90px;text-align:center;padding:6px 12px;border-right:1px solid rgba(255,255,255,0.2)">
           <div style="font-size:1.9rem;font-weight:800">{dh}h{dm:02d}</div>
@@ -674,14 +685,14 @@ def main():
           <div style="font-size:.75rem;color:rgba(255,255,255,0.6)">🏁 Arrivée</div>
         </div>
         <div style="flex:1;min-width:90px;text-align:center;padding:6px 12px;border-left:1px solid rgba(255,255,255,0.2)">
-          <div style="font-size:1.9rem;font-weight:800">{calories}</div>
-          <div style="font-size:.9rem;color:rgba(255,255,255,0.85)">kcal</div>
-          <div style="font-size:.75rem;color:rgba(255,255,255,0.6)">🔥 Calories</div>
+          <div style="font-size:1.9rem;font-weight:800">{len(points_eau)} 💧</div>
+          <div style="font-size:.9rem;color:rgba(255,255,255,0.85)">points d'eau</div>
+          <div style="font-size:.75rem;color:rgba(255,255,255,0.6)">Ravitaillement</div>
         </div>
       </div>
     </div>""", unsafe_allow_html=True)
 
-    # L'Optimiseur a maintenant un beau bouton interactif
+    # Optimiseur de départ interactif
     if not is_past and not err_meteo:
         with st.expander("⏱️ Trouver le meilleur moment pour partir", expanded=False):
             st.markdown("L'application va simuler votre sortie pour les 3 prochaines heures et trouver le créneau avec le meilleur score météo.")
@@ -689,10 +700,12 @@ def main():
                 opt_res = optimiser_depart(checkpoints, rep_list, ascensions, d_plus, vitesse, ref_val, mode, poids)
                 if opt_res and opt_res[0] > 0 and opt_res[1] > score['total']:
                     heure_opt = (date_depart + timedelta(hours=opt_res[0])).strftime("%H:%M")
-                    st.success(f"💡 **Départ optimal trouvé : {heure_opt} (+{opt_res[0]}h)**. Votre score passerait à **{opt_res[1]}/10** ! (Modifiez l'heure à gauche pour actualiser toute l'interface).")
+                    st.success(f"💡 **Départ optimal trouvé : {heure_opt} (+{opt_res[0]}h)**. Votre score passerait à **{opt_res[1]}/10** ! (Modifiez l'heure à gauche pour actualiser l'interface).")
                 else:
                     st.info("✅ Ne changez rien ! Votre heure de départ actuelle est déjà la meilleure pour les conditions météo.")
 
+
+    # ── ONGLETS ───────────────────────────────────────────────────────────────
     tab_carte, tab_profil, tab_meteo, tab_cols, tab_detail, tab_analyse = st.tabs([
         "🗺️ Carte", "⛰️ Profil & Cols", "🌤️ Météo", "🏔️ Ascensions", "📋 Détail", "🤖 Coach IA"
     ])
@@ -704,7 +717,6 @@ def main():
             hj, mj = int(ds.seconds // 3600), int((ds.seconds % 3600) // 60)
             st.markdown(f"<div class='soleil-row'><span style='font-size:1.3rem'>☀️</span><div class='soleil-item'><div class='s-val'>🌅 {ls}</div><div class='s-lbl'>Lever (UTC)</div></div><div class='soleil-item'><div class='s-val'>🌇 {cs}</div><div class='s-lbl'>Coucher (UTC)</div></div><div class='soleil-item'><div class='s-val'>{hj}h{mj:02d}m</div><div class='s-lbl'>Durée du jour</div></div></div>", unsafe_allow_html=True)
             
-            # Alerte Nuit
             tz = infos_soleil["lever"].tzinfo
             if date_depart.replace(tzinfo=tz) < infos_soleil["lever"]:
                 st.warning(f"⚠️ Départ avant le lever du soleil ({ls} UTC) — prévoyez un éclairage.")
@@ -742,7 +754,6 @@ def main():
         for j, (_, _, num, lbl, coul) in enumerate(zones_actives(mode)):
             cols_z[j].markdown(f'<div style="background:{coul};color:white;border-radius:6px;padding:6px;text-align:center;font-size:.72rem"><b>{lbl}</b></div>', unsafe_allow_html=True)
 
-
     with tab_meteo:
         if err_meteo: st.warning("⚠️ Météo indisponible.")
         else:
@@ -758,6 +769,9 @@ def main():
                     pp = analyse_meteo["pct_pluie"]
                     coul = "#ef4444" if pp>60 else "#f97316" if pp>30 else "#22c55e"
                     st.markdown(f"<div style='text-align:center;padding:16px;background:#f8fafc;border-radius:10px'><div style='font-size:2.5rem;font-weight:900;color:{coul}'>{pp}%</div><div style='font-size:.85rem;color:#64748b'>du parcours avec risque > 50%</div></div>", unsafe_allow_html=True)
+                    if analyse_meteo["premier_pluie"]:
+                        cp_p = analyse_meteo["premier_pluie"]
+                        st.markdown(f"<div style='background:#fef3c7;border-radius:8px;padding:10px 14px;font-size:.85rem'>🕐 Premier risque à <b>{cp_p['Heure']}</b> — Km {cp_p['Km']}<br>Probabilité : <b>{cp_p.get('pluie_pct','?')}%</b></div>", unsafe_allow_html=True)
 
     with tab_cols:
         st.caption(LEGENDE_UCI)
@@ -783,7 +797,7 @@ def main():
             st.success("🚴‍♂️ Aucune difficulté majeure détectée.")
 
     with tab_detail:
-        lignes = [{"Heure": cp["Heure"], "Km": cp["Km"], "Ciel": cp.get("Ciel","—"), "Temp": f"{cp.get('temp_val','-')}°C", "Vent": f"{cp.get('vent_val','-')} km/h", "Effet": cp.get("effet","—")} for cp in resultats]
+        lignes = [{"Heure": cp["Heure"], "Km": cp["Km"], "Ciel": cp.get("Ciel","—"), "Temp": f"{cp.get('temp_val','-')}°C", "Vent": f"{cp.get('vent_val','-')} km/h", "Rafales": f"{cp.get('rafales_val','-')} km/h", "Effet": cp.get("effet","—"), "Ressenti": label_wind_chill(cp.get("ressenti"))} for cp in resultats]
         c1, c2 = st.columns(2)
         c1.metric("☀️ Indice UV Max", air_quality.get("uv_max", "Inconnu"))
         c2.metric("🌿 Pollen", air_quality.get("pollen_alerte", "Aucune alerte"))
