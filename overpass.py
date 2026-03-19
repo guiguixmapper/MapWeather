@@ -14,19 +14,27 @@ def distance_haversine(lat1, lon1, lat2, lon2):
     return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 @st.cache_data(ttl=86400, show_spinner=False)
-def enrichir_cols(ascensions, coords_gpx): # <-- Utilise les coordonnées simples
+def enrichir_cols(ascensions, coords_gpx): 
     if not ascensions: return ascensions
     lats = [lat for lat, lon in coords_gpx]
     lons = [lon for lat, lon in coords_gpx]
     s, n = min(lats) - 0.02, max(lats) + 0.02
     w, e = min(lons) - 0.02, max(lons) + 0.02
 
+    # LA CORRECTION EST ICI : On cherche les "saddle" (cols) ET les "mountain_pass"
     query = f"""
     [out:json][timeout:25];
-    node["mountain_pass"="yes"]({s},{w},{n},{e});
+    (
+      node["natural"="saddle"]({s},{w},{n},{e});
+      node["mountain_pass"="yes"]({s},{w},{n},{e});
+    );
     out body;
     """
     url = "https://overpass-api.de/api/interpreter"
+    
+    # On travaille sur une copie pour que le cache Streamlit ne plante pas
+    ascensions_enrichies = [dict(a) for a in ascensions]
+    
     try:
         response = requests.post(url, data={"data": query}, timeout=15)
         if response.status_code == 200:
@@ -38,12 +46,13 @@ def enrichir_cols(ascensions, coords_gpx): # <-- Utilise les coordonnées simple
                 if nom:
                     cols_osm.append({"lat": node["lat"], "lon": node["lon"], "nom": nom, "ele": ele})
             
-            for asc in ascensions:
+            for asc in ascensions_enrichies:
                 lat_a, lon_a = asc.get("_lat_sommet"), asc.get("_lon_sommet")
                 if not lat_a or not lon_a: continue
                 meilleur_nom, meilleure_dist, ele_osm = None, float('inf'), None
                 for c in cols_osm:
                     dist = distance_haversine(lat_a, lon_a, c["lat"], c["lon"])
+                    # On cherche dans un rayon de 1.5 km autour du sommet estimé
                     if dist < 1500 and dist < meilleure_dist:
                         meilleure_dist = dist
                         meilleur_nom = c["nom"]
@@ -53,10 +62,11 @@ def enrichir_cols(ascensions, coords_gpx): # <-- Utilise les coordonnées simple
                     asc["Nom OSM alt"] = ele_osm
     except Exception as e:
         logger.warning(f"Overpass (Cols) échoué: {e}")
-    return ascensions
+        
+    return ascensions_enrichies
 
 @st.cache_data(ttl=86400, show_spinner=False)
-def recuperer_points_eau(coords_gpx): # <-- Utilise les coordonnées simples
+def recuperer_points_eau(coords_gpx):
     """Trouve les points d'eau potable à proximité du parcours (< 150m)"""
     if not coords_gpx: return []
     lats = [lat for lat, lon in coords_gpx]
