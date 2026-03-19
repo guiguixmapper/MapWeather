@@ -1,3 +1,5 @@
+# --- FICHIER : overpass.py ---
+
 import requests
 import logging
 import streamlit as st
@@ -85,9 +87,11 @@ def recuperer_points_eau(coords_gpx):
     if not coords_gpx: return []
     lats = [lat for lat, lon in coords_gpx]
     lons = [lon for lat, lon in coords_gpx]
-    pts_echantillon = coords_gpx[::20] 
-    s, n = min(lats) - 0.01, max(lats) + 0.01
-    w, e = min(lons) - 0.01, max(lons) + 0.01
+    
+    # On prend 1 point sur 10 pour le radar (plus précis qu'avant)
+    pts_echantillon = coords_gpx[::10] 
+    s, n = min(lats) - 0.02, max(lats) + 0.02
+    w, e = min(lons) - 0.02, max(lons) + 0.02
 
     query = f"""
     [out:json][timeout:25];
@@ -98,21 +102,36 @@ def recuperer_points_eau(coords_gpx):
     );
     out body;
     """
-    url = "https://overpass-api.de/api/interpreter"
-    points_eau_valides = []
     
-    try:
-        response = requests.post(url, data={"data": query}, timeout=15)
-        if response.status_code == 200:
-            data = response.json()
-            for node in data.get("elements", []):
-                lat_w, lon_w = node["lat"], node["lon"]
-                for lat_p, lon_p in pts_echantillon:
-                    if distance_haversine(lat_w, lon_w, lat_p, lon_p) < 150:
-                        nom = node.get("tags", {}).get("name", "Point d'eau")
-                        points_eau_valides.append({"lat": lat_w, "lon": lon_w, "nom": nom})
-                        break
-    except Exception as e:
-        logger.warning(f"Overpass (Eau) échoué: {e}")
-        
+    # On ajoute deux serveurs pour contourner les pannes de l'API
+    urls = [
+        "https://overpass-api.de/api/interpreter",
+        "https://lz4.overpass-api.de/api/interpreter"
+    ]
+    
+    points_eau_valides = []
+    data = None
+    
+    for url in urls:
+        try:
+            response = requests.post(url, data={"data": query}, timeout=15)
+            if response.status_code == 200:
+                data = response.json()
+                break
+            elif response.status_code == 429:
+                time.sleep(2) # On patiente 2 sec si le serveur râle
+        except Exception as e:
+            logger.warning(f"Serveur Eau {url} échoué: {e}")
+            continue
+
+    if data:
+        for node in data.get("elements", []):
+            lat_w, lon_w = node["lat"], node["lon"]
+            # On vérifie si la fontaine est à moins de 250m de la route
+            for lat_p, lon_p in pts_echantillon:
+                if distance_haversine(lat_w, lon_w, lat_p, lon_p) < 250:
+                    nom = node.get("tags", {}).get("name", "Point d'eau")
+                    points_eau_valides.append({"lat": lat_w, "lon": lon_w, "nom": nom})
+                    break
+                    
     return copy.deepcopy(points_eau_valides)
